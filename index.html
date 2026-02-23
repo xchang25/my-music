@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TuneHub 听歌软件 V2</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>🎵 TuneHub 听歌软件（V2）</h1>
+      <p class="sub">已增加登录保护 + 限流防刷。先登录再搜索/播放。</p>
+
+      <section class="card">
+        <h2>0) 登录</h2>
+        <div class="grid">
+          <label
+            >访问密码
+            <input id="password" type="password" placeholder="输入 APP_PASSWORD" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="btnLogin">登录</button>
+          <button id="btnLogout" class="btn-secondary">退出</button>
+        </div>
+        <div id="authState" class="msg"></div>
+      </section>
+
+      <section class="card">
+        <h2>1) 搜索歌曲</h2>
+        <div class="grid">
+          <label
+            >平台
+            <select id="searchPlatform">
+              <option value="netease">网易云</option>
+              <option value="qq">QQ音乐</option>
+              <option value="kuwo">酷我</option>
+            </select>
+          </label>
+          <label
+            >关键词
+            <input id="keyword" placeholder="例如：周杰伦 稻香" />
+          </label>
+          <label
+            >页码
+            <input id="page" type="number" value="0" min="0" />
+          </label>
+          <label
+            >每页
+            <input id="pageSize" type="number" value="20" min="1" max="50" />
+          </label>
+        </div>
+        <button id="btnSearch">搜索</button>
+        <div id="searchMsg" class="msg"></div>
+        <div id="searchList" class="list"></div>
+      </section>
+
+      <section class="card">
+        <h2>2) 解析并播放</h2>
+        <div class="grid">
+          <label
+            >平台
+            <select id="parsePlatform">
+              <option value="netease">网易云</option>
+              <option value="qq">QQ音乐</option>
+              <option value="kuwo">酷我</option>
+            </select>
+          </label>
+          <label
+            >歌曲ID（多个可逗号分隔）
+            <input id="ids" placeholder="例如：1974443814" />
+          </label>
+          <label
+            >音质
+            <select id="quality">
+              <option value="128k">128k</option>
+              <option value="320k" selected>320k</option>
+              <option value="flac">flac</option>
+              <option value="flac24bit">flac24bit</option>
+            </select>
+          </label>
+        </div>
+        <button id="btnParse">解析播放</button>
+        <div id="parseMsg" class="msg"></div>
+
+        <h3 id="songTitle">尚未播放</h3>
+        <audio id="player" controls></audio>
+        <div class="actions">
+          <button id="btnFav">收藏当前歌曲</button>
+        </div>
+
+        <details>
+          <summary>歌词</summary>
+          <pre id="lyrics">暂无歌词</pre>
+        </details>
+
+        <details>
+          <summary>原始 JSON（调试）</summary>
+          <pre id="raw"></pre>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>3) 收藏</h2>
+        <div id="favList" class="list"></div>
+      </section>
+
+      <section class="card">
+        <h2>4) 最近播放</h2>
+        <div id="hisList" class="list"></div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
