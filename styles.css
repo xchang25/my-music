@@ -251,6 +251,27 @@ button {
   background-position: center;
 }
 
+.cover-anim {
+  animation: coverPulse 0.42s ease;
+}
+
+@keyframes coverPulse {
+  0% {
+    transform: scale(0.94);
+    filter: brightness(0.86);
+  }
+
+  60% {
+    transform: scale(1.03);
+    filter: brightness(1.12);
+  }
+
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
 .workspace {
   display: grid;
   gap: 12px;
@@ -382,6 +403,42 @@ h4 {
 .queue-list {
   display: grid;
   gap: 8px;
+}
+
+.list,
+.rank-list,
+.queue-list,
+.lyrics-box {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(142, 161, 255, 0.5) transparent;
+}
+
+.list::-webkit-scrollbar,
+.rank-list::-webkit-scrollbar,
+.queue-list::-webkit-scrollbar,
+.lyrics-box::-webkit-scrollbar {
+  width: 8px;
+}
+
+.list::-webkit-scrollbar-thumb,
+.rank-list::-webkit-scrollbar-thumb,
+.queue-list::-webkit-scrollbar-thumb,
+.lyrics-box::-webkit-scrollbar-thumb {
+  background: rgba(142, 161, 255, 0.45);
+  border-radius: 999px;
+}
+
+#searchList,
+#topSongList,
+#favList,
+#hisList {
+  max-height: 360px;
+}
+
+#toplistList,
+#queueList {
+  max-height: 280px;
 }
 
 .rank-item {
@@ -521,10 +578,51 @@ h4 {
 .lyrics-box {
   max-height: 280px;
   overflow: auto;
+  scroll-behavior: smooth;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   padding: 8px;
+}
+
+.lyrics-card.focused {
+  box-shadow: 0 0 0 2px rgba(142, 161, 255, 0.35), 0 18px 30px rgba(0, 0, 0, 0.18);
+}
+
+.lyric-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  background: rgba(4, 7, 16, 0.72);
+  backdrop-filter: blur(6px);
+  padding: 20px;
+}
+
+.lyric-fullscreen.open {
+  display: block;
+}
+
+.lyric-fullscreen-inner {
+  max-width: 900px;
+  height: calc(100vh - 40px);
+  margin: 0 auto;
+  padding: 14px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.lyric-fullscreen-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.fs-box {
+  max-height: none;
+  height: 100%;
 }
 
 .lyric-line {
@@ -540,6 +638,37 @@ body.light .lyric-line {
 .lyric-line.active {
   background: rgba(142, 161, 255, 0.22);
   color: var(--text);
+}
+
+.lyric-word {
+  display: inline-block;
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease,
+    text-shadow 0.16s ease;
+}
+
+.lyric-word.active-word {
+  color: var(--primary-2);
+  font-weight: 700;
+  transform: translateY(-1px);
+  text-shadow: 0 0 10px rgba(121, 228, 255, 0.38);
+}
+
+body.light .lyric-word.active-word {
+  color: var(--primary);
+  text-shadow: 0 0 8px rgba(74, 99, 255, 0.24);
+}
+
+#lyricsFullscreenList .lyric-line {
+  text-align: center;
+  font-size: clamp(20px, 2.4vw, 34px);
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+}
+
+#lyricsFullscreenList .lyric-line.active {
+  background: rgba(142, 161, 255, 0.18);
 }
 
 .lyric-line.dim {
@@ -652,6 +781,15 @@ body.light .lyric-line {
     justify-content: flex-end;
   }
 
+  #searchList,
+  #topSongList,
+  #favList,
+  #hisList,
+  #toplistList,
+  #queueList {
+    max-height: 240px;
+  }
+
   .drawer-toggle {
     display: inline-flex;
   }
@@ -681,5 +819,13 @@ body.light .lyric-line {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
+  }
+
+  .lyric-fullscreen {
+    padding: 10px;
+  }
+
+  .lyric-fullscreen-inner {
+    height: calc(100vh - 20px);
   }
 }

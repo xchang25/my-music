@@ -156,7 +156,7 @@
         </div>
       </main>
 
-      <aside class="right glass">
+      <aside class="right glass" id="nowAside">
         <div class="now-card">
           <div id="coverMini" class="cover-sm">♫</div>
           <div class="now-title" id="songTitle">尚未播放</div>
@@ -164,6 +164,7 @@
           <div class="row">
             <button id="btnFav" class="btn btn-ghost" type="button">收藏当前</button>
             <button id="btnAutoLyric" class="btn btn-ghost" type="button">歌词滚动：开</button>
+            <button id="btnLyricFullscreen" class="btn btn-ghost" type="button">歌词全屏</button>
           </div>
           <div id="parseMsg" class="tips"></div>
         </div>
@@ -173,7 +174,7 @@
           <div id="queueList" class="queue-list"></div>
         </div>
 
-        <div class="lyrics-card">
+        <div class="lyrics-card" id="lyricsCard">
           <h4>实时歌词</h4>
           <div id="lyricsRealtime" class="lyrics-box">
             <div class="empty">暂无歌词，请先播放一首歌曲</div>
@@ -213,6 +214,21 @@
 
       <audio id="playerAudio" preload="metadata"></audio>
     </footer>
+
+    <div id="lyricFullscreen" class="lyric-fullscreen" aria-hidden="true">
+      <div class="lyric-fullscreen-inner glass">
+        <div class="lyric-fullscreen-top">
+          <div>
+            <div id="lyricFsTitle" class="now-title">暂无播放</div>
+            <div id="lyricFsSub" class="now-sub">请先播放歌曲</div>
+          </div>
+          <button id="btnLyricFsClose" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+        <div id="lyricsFullscreenList" class="lyrics-box fs-box">
+          <div class="empty">暂无歌词</div>
+        </div>
+      </div>
+    </div>
 
     <script src="./app.js"></script>
   </body>

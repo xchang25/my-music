@@ -30,7 +30,9 @@ const state = {
   playModeIndex: 0,
   lyricLines: [],
   lyricActiveIndex: -1,
+  lyricWordActiveIndex: -1,
   lyricAutoScroll: true,
+  lyricFullscreen: false,
   resolveCache: {},
   isScrubbing: false,
   drawerOpen: false
@@ -82,6 +84,55 @@ function setDrawerOpen(open) {
   player.classList.toggle("open", state.drawerOpen);
   const btn = $("btnDrawer");
   if (btn) btn.textContent = state.drawerOpen ? "收起" : "展开";
+}
+
+function focusLyricsArea() {
+  const lyricsCard = $("lyricsCard");
+  if (!lyricsCard) return;
+
+  lyricsCard.classList.add("focused");
+  setTimeout(() => lyricsCard.classList.remove("focused"), 1200);
+
+  if (window.innerWidth <= 1120) {
+    lyricsCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  if (window.innerWidth <= 760) {
+    setDrawerOpen(true);
+  }
+}
+
+function animateCoverTransition() {
+  ["coverHero", "coverMini", "coverBar"].forEach((id) => {
+    const node = $(id);
+    if (!node) return;
+    node.classList.remove("cover-anim");
+    void node.offsetWidth;
+    node.classList.add("cover-anim");
+  });
+}
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function setLyricFullscreen(open) {
+  state.lyricFullscreen = !!open;
+  const layer = $("lyricFullscreen");
+  if (!layer) return;
+
+  renderLyrics(state.lyricLines);
+  setActiveLyric(state.lyricActiveIndex, state.lyricWordActiveIndex);
+
+  layer.classList.toggle("open", state.lyricFullscreen);
+  layer.setAttribute("aria-hidden", state.lyricFullscreen ? "false" : "true");
+  document.body.style.overflow = state.lyricFullscreen ? "hidden" : "";
+  const btn = $("btnLyricFullscreen");
+  if (btn) btn.textContent = state.lyricFullscreen ? "退出全屏" : "歌词全屏";
 }
 
 function setAuthUI() {
@@ -329,9 +380,12 @@ function setNowPlaying(song) {
   setText("nowArtist", `${song.artist || "未知歌手"} · ${platformText[song.platform] || song.platform || "未知平台"}`);
   setText("miniTitle", song.name || "未知歌曲");
   setText("miniSub", song.artist || "未知歌手");
+  setText("lyricFsTitle", song.name || "未知歌曲");
+  setText("lyricFsSub", `${song.artist || "未知歌手"} · ${song.album || "单曲"}`);
   setCover("coverHero", song.cover);
   setCover("coverMini", song.cover);
   setCover("coverBar", song.cover);
+  animateCoverTransition();
 }
 
 function parseTs(text) {
@@ -348,18 +402,55 @@ function parseLyrics(raw) {
   if (!text) return [];
 
   const lines = [];
-  text.split("\n").forEach((line) => {
+  text.split("\n").forEach((lineRaw) => {
+    const line = lineRaw.trim();
+    if (!line) return;
+
+    const krcHeader = line.match(/^\[(\d+),(\d+)\]/);
+    if (krcHeader) {
+      const base = Number(krcHeader[1]) / 1000;
+      const body = line.replace(/^\[\d+,\d+\]/, "");
+      const words = [];
+      const krcWordPattern = /<(\d+),(\d+),\d+>([^<]+)/g;
+      let km;
+      while ((km = krcWordPattern.exec(body)) !== null) {
+        const offset = Number(km[1]) / 1000;
+        const content = (km[3] || "").trim();
+        if (!content) continue;
+        words.push({ time: base + offset, text: content });
+      }
+      const merged = words.map((w) => w.text).join("").trim() || body.replace(/<\d+,\d+,\d+>/g, "").trim();
+      lines.push({ time: base, text: merged || "♪", words });
+      return;
+    }
+
     const tags = [...line.matchAll(/\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\]/g)];
-    const clean = line.replace(/\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\]/g, "").trim();
+    const content = line.replace(/\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\]/g, "").trim();
+
+    const enhancedWords = [];
+    const enhancedPattern = /<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>([^<]*)/g;
+    let em;
+    while ((em = enhancedPattern.exec(content)) !== null) {
+      const ts = parseTs(em[1]);
+      const w = (em[2] || "").trim();
+      if (ts != null && w) enhancedWords.push({ time: ts, text: w });
+    }
+    const plain = content.replace(/<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>/g, "").trim();
 
     if (!tags.length) {
-      if (clean) lines.push({ time: null, text: clean });
+      if (plain) lines.push({ time: null, text: plain });
       return;
     }
 
     tags.forEach((tag) => {
       const ts = parseTs(tag[1]);
-      if (ts != null) lines.push({ time: ts, text: clean || "♪" });
+      if (ts != null) {
+        lines.push({
+          time: ts,
+          text: plain || "♪",
+          words: enhancedWords.length ? enhancedWords.map((w) => ({ ...w })) : []
+        });
+      }
     });
   });
 
@@ -367,63 +458,100 @@ function parseLyrics(raw) {
   return lines;
 }
 
-function renderLyrics(lines) {
-  const box = $("lyricsRealtime");
-  if (!box) return;
+function createLyricLineNode(line, idx) {
+  const node = document.createElement("div");
+  node.className = `lyric-line ${line.time == null ? "dim" : ""}`;
+  node.dataset.index = String(idx);
 
-  if (!lines.length) {
-    box.innerHTML = `<div class=\"empty\">暂无歌词，请先播放一首歌曲</div>`;
-    return;
+  if (typeof line.time === "number") {
+    node.dataset.time = String(line.time);
+    node.style.cursor = "pointer";
+    node.title = "点击跳转到该句";
+    node.addEventListener("click", () => {
+      audio.currentTime = line.time;
+      updateLyricByTime(line.time);
+      if (audio.paused) audio.play().catch(() => {});
+    });
   }
 
-  box.innerHTML = "";
-  lines.forEach((line, idx) => {
-    const node = document.createElement("div");
-    node.className = `lyric-line ${line.time == null ? "dim" : ""}`;
-    node.dataset.index = String(idx);
-    if (typeof line.time === "number") {
-      node.dataset.time = String(line.time);
-      node.style.cursor = "pointer";
-      node.title = "点击跳转到该句";
-      node.addEventListener("click", () => {
-        audio.currentTime = line.time;
-        updateLyricByTime(line.time);
-        if (audio.paused) audio.play().catch(() => {});
-      });
-    }
+  if (Array.isArray(line.words) && line.words.length > 0) {
+    node.innerHTML = line.words
+      .map((word, widx) => `<span class="lyric-word" data-widx="${widx}">${escapeHtml(word.text)}</span>`)
+      .join("");
+  } else {
     node.textContent = line.text || "♪";
-    box.appendChild(node);
+  }
+  return node;
+}
+
+function renderLyrics(lines) {
+  const boxes = [$("lyricsRealtime"), $("lyricsFullscreenList")].filter(Boolean);
+  if (!boxes.length) return;
+
+  boxes.forEach((box) => {
+    if (!lines.length) {
+      box.innerHTML = `<div class=\"empty\">暂无歌词，请先播放一首歌曲</div>`;
+      return;
+    }
+
+    box.innerHTML = "";
+    lines.forEach((line, idx) => {
+      box.appendChild(createLyricLineNode(line, idx));
+    });
   });
 }
 
-function setActiveLyric(index) {
-  const box = $("lyricsRealtime");
-  if (!box) return;
-  box.querySelector(".lyric-line.active")?.classList.remove("active");
-  if (index < 0) return;
+function setActiveLyric(index, wordIndex = -1) {
+  const boxes = [$("lyricsRealtime"), $("lyricsFullscreenList")].filter(Boolean);
+  if (!boxes.length) return;
 
-  const node = box.querySelector(`.lyric-line[data-index=\"${index}\"]`);
-  if (!node) return;
-  node.classList.add("active");
+  boxes.forEach((box) => {
+    box.querySelector(".lyric-line.active")?.classList.remove("active");
+    box.querySelectorAll(".lyric-word.active-word").forEach((node) => {
+      node.classList.remove("active-word");
+    });
+    if (index < 0) return;
 
-  if (state.lyricAutoScroll) {
-    const top = node.offsetTop - box.clientHeight * 0.35;
-    box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  }
+    const node = box.querySelector(`.lyric-line[data-index=\"${index}\"]`);
+    if (!node) return;
+    node.classList.add("active");
+
+    if (wordIndex >= 0) {
+      const word = node.querySelector(`.lyric-word[data-widx=\"${wordIndex}\"]`);
+      if (word) word.classList.add("active-word");
+    }
+
+    if (state.lyricAutoScroll) {
+      const top = node.offsetTop - box.clientHeight * 0.35;
+      box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+  });
 }
 
 function updateLyricByTime(time) {
   if (!state.lyricLines.length) return;
   let idx = -1;
+  let wordIdx = -1;
   for (let i = 0; i < state.lyricLines.length; i += 1) {
     const line = state.lyricLines[i];
     if (typeof line.time !== "number") continue;
     if (time >= line.time - 0.05) idx = i;
     else break;
   }
-  if (idx !== state.lyricActiveIndex) {
+  if (idx >= 0) {
+    const line = state.lyricLines[idx];
+    if (Array.isArray(line.words) && line.words.length) {
+      for (let i = 0; i < line.words.length; i += 1) {
+        if (time >= line.words[i].time - 0.02) wordIdx = i;
+        else break;
+      }
+    }
+  }
+
+  if (idx !== state.lyricActiveIndex || wordIdx !== state.lyricWordActiveIndex) {
     state.lyricActiveIndex = idx;
-    setActiveLyric(idx);
+    state.lyricWordActiveIndex = wordIdx;
+    setActiveLyric(idx, wordIdx);
   }
 }
 
@@ -485,10 +613,13 @@ async function playQueueIndex(index) {
 
     state.lyricLines = parseLyrics(song.lyrics);
     state.lyricActiveIndex = -1;
+    state.lyricWordActiveIndex = -1;
     renderLyrics(state.lyricLines);
 
     audio.src = song.url;
     audio.play().catch(() => {});
+
+    focusLyricsArea();
 
     addHistory(song);
     setMsg("parseMsg", "播放成功");
@@ -699,6 +830,26 @@ function bindTopActions() {
   $("keyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") searchSongs();
   });
+
+  $("btnLyricFullscreen").addEventListener("click", () => {
+    setLyricFullscreen(!state.lyricFullscreen);
+  });
+
+  $("btnLyricFsClose").addEventListener("click", () => {
+    setLyricFullscreen(false);
+  });
+
+  $("lyricFullscreen").addEventListener("click", (event) => {
+    if (event.target?.id === "lyricFullscreen") {
+      setLyricFullscreen(false);
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.lyricFullscreen) {
+      setLyricFullscreen(false);
+    }
+  });
 }
 
 function bindPlayerActions() {
@@ -819,6 +970,7 @@ function initialize() {
   $("btnMode").textContent = getMode().label;
   $("qualityGlobal").value = state.quality;
   setDrawerOpen(false);
+  setLyricFullscreen(false);
 
   bindMenu();
   bindDemos();
