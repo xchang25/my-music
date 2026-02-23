@@ -35,7 +35,9 @@ const state = {
   lyricFullscreen: false,
   resolveCache: {},
   isScrubbing: false,
-  drawerOpen: false
+  drawerOpen: false,
+  playerIdle: false,
+  playerIdleTimer: null
 };
 
 const audio = $("playerAudio");
@@ -54,6 +56,21 @@ function setText(id, value) {
 
 function setMsg(id, value) {
   setText(id, value);
+}
+
+function setButtonLoading(id, pending, loadingText = "处理中...") {
+  const btn = $(id);
+  if (!btn) return;
+  if (pending) {
+    if (!btn.dataset.normalText) btn.dataset.normalText = btn.textContent || "";
+    btn.dataset.wasDisabled = btn.disabled ? "1" : "0";
+    btn.textContent = loadingText;
+    btn.disabled = true;
+  } else {
+    btn.textContent = btn.dataset.normalText || btn.textContent || "";
+    const needAuth = id === "btnSearch" || id === "btnLoadToplists";
+    btn.disabled = (!state.loggedIn && needAuth) || btn.dataset.wasDisabled === "1";
+  }
 }
 
 function setCover(elId, url) {
@@ -86,6 +103,27 @@ function setDrawerOpen(open) {
   if (btn) btn.textContent = state.drawerOpen ? "收起" : "展开";
 }
 
+function setPlayerIdle(idle) {
+  state.playerIdle = !!idle;
+  const player = document.querySelector(".player");
+  if (!player) return;
+  player.classList.toggle("idle", state.playerIdle);
+}
+
+function schedulePlayerIdle() {
+  if (window.innerWidth <= 760) return;
+  if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
+  state.playerIdleTimer = setTimeout(() => {
+    if (!state.isScrubbing) setPlayerIdle(true);
+  }, 2600);
+}
+
+function wakePlayer() {
+  if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
+  setPlayerIdle(false);
+  schedulePlayerIdle();
+}
+
 function focusLyricsArea() {
   const lyricsCard = $("lyricsCard");
   if (!lyricsCard) return;
@@ -101,8 +139,28 @@ function focusLyricsArea() {
   }
 }
 
+function setLyricFsCover(url) {
+  const node = $("lyricFsBg");
+  if (!node) return;
+  if (url) {
+    node.style.backgroundImage = `url(${url})`;
+    node.classList.add("has");
+  } else {
+    node.style.backgroundImage = "";
+    node.classList.remove("has");
+  }
+}
+
+function setPlayPauseUI(isPlaying) {
+  const btn = $("btnPlayPause");
+  if (!btn) return;
+  btn.textContent = isPlaying ? "⏸" : "▶";
+  btn.title = isPlaying ? "暂停" : "播放";
+  btn.setAttribute("aria-label", isPlaying ? "暂停" : "播放");
+}
+
 function animateCoverTransition() {
-  ["coverHero", "coverMini", "coverBar"].forEach((id) => {
+  ["coverHero", "coverMini", "coverBar", "lyricFsBg"].forEach((id) => {
     const node = $(id);
     if (!node) return;
     node.classList.remove("cover-anim");
@@ -138,6 +196,7 @@ function setLyricFullscreen(open) {
 function setAuthUI() {
   setText("authState", state.loggedIn ? "✅ 已登录" : "❌ 未登录");
   setText("topAuthBadge", state.loggedIn ? "已登录" : "未登录");
+  $("authDot")?.classList.toggle("online", state.loggedIn);
 
   ["btnSearch", "btnLoadToplists"].forEach((id) => {
     const btn = $(id);
@@ -385,6 +444,7 @@ function setNowPlaying(song) {
   setCover("coverHero", song.cover);
   setCover("coverMini", song.cover);
   setCover("coverBar", song.cover);
+  setLyricFsCover(song.cover);
   animateCoverTransition();
 }
 
@@ -693,7 +753,7 @@ async function searchSongs() {
 
   const platform = $("searchPlatform").value;
   const keyword = $("keyword").value.trim();
-  const page = Number($("page").value || 0);
+  const page = Math.max(1, Number($("page").value || 1));
   const pageSize = Number($("pageSize").value || 20);
 
   if (!keyword) {
@@ -702,25 +762,34 @@ async function searchSongs() {
   }
 
   setMsg("searchMsg", "搜索中...");
-  const { status, data } = await api("/api/search", {
-    method: "POST",
-    body: { platform, keyword, page, pageSize }
-  });
+  setButtonLoading("btnSearch", true, "搜索中...");
+  try {
+    const { status, data } = await api("/api/search", {
+      method: "POST",
+      body: { platform, keyword, page, pageSize }
+    });
 
-  if (status === 401) return onUnauthorized();
-  if (status !== 200 || data.code !== 0) {
+    if (status === 401) return onUnauthorized();
+    if (status !== 200 || data.code !== 0) {
+      state.searchResults = [];
+      renderSongList("searchList", [], { emptyText: "搜索失败" });
+      setMsg("searchMsg", data.message || `搜索失败（HTTP ${status}）`);
+      return;
+    }
+
+    state.searchResults = (data?.data?.songs || []).map((song) => ({ ...song, platform: song.platform || platform }));
+    renderSongList("searchList", state.searchResults, {
+      showFav: true,
+      emptyText: "未找到歌曲"
+    });
+    setMsg("searchMsg", `搜索完成：${state.searchResults.length} 条`);
+  } catch (error) {
     state.searchResults = [];
-    renderSongList("searchList", [], { emptyText: "搜索失败" });
-    setMsg("searchMsg", data.message || "搜索失败");
-    return;
+    renderSongList("searchList", [], { emptyText: "搜索异常" });
+    setMsg("searchMsg", `搜索异常：${error?.message || "网络错误"}`);
+  } finally {
+    setButtonLoading("btnSearch", false);
   }
-
-  state.searchResults = (data?.data?.songs || []).map((song) => ({ ...song, platform: song.platform || platform }));
-  renderSongList("searchList", state.searchResults, {
-    showFav: true,
-    emptyText: "未找到歌曲"
-  });
-  setMsg("searchMsg", `搜索完成：${state.searchResults.length} 条`);
 }
 
 async function loadToplists() {
@@ -732,26 +801,33 @@ async function loadToplists() {
   const platform = $("rankPlatform").value;
   setMsg("toplistMsg", "加载榜单中...");
 
-  const { status, data } = await api("/api/toplists", {
-    method: "POST",
-    body: { platform }
-  });
+  setButtonLoading("btnLoadToplists", true, "加载中...");
+  try {
+    const { status, data } = await api("/api/toplists", {
+      method: "POST",
+      body: { platform }
+    });
 
-  if (status === 401) return onUnauthorized();
-  if (status !== 200 || data.code !== 0) {
-    state.toplists = [];
+    if (status === 401) return onUnauthorized();
+    if (status !== 200 || data.code !== 0) {
+      state.toplists = [];
+      renderToplists();
+      setMsg("toplistMsg", data.message || "加载失败");
+      return;
+    }
+
+    state.toplists = data?.data?.toplists || [];
+    state.activeToplistId = "";
     renderToplists();
-    setMsg("toplistMsg", data.message || "加载失败");
-    return;
-  }
+    setMsg("toplistMsg", `已加载 ${state.toplists.length} 个榜单`);
 
-  state.toplists = data?.data?.toplists || [];
-  state.activeToplistId = "";
-  renderToplists();
-  setMsg("toplistMsg", `已加载 ${state.toplists.length} 个榜单`);
-
-  if (state.toplists.length) {
-    loadToplistSongs(state.toplists[0]);
+    if (state.toplists.length) {
+      loadToplistSongs(state.toplists[0]);
+    }
+  } catch (error) {
+    setMsg("toplistMsg", `加载异常：${error?.message || "网络错误"}`);
+  } finally {
+    setButtonLoading("btnLoadToplists", false);
   }
 }
 
@@ -831,6 +907,10 @@ function bindTopActions() {
     if (event.key === "Enter") searchSongs();
   });
 
+  $("password").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") doLogin();
+  });
+
   $("btnLyricFullscreen").addEventListener("click", () => {
     setLyricFullscreen(!state.lyricFullscreen);
   });
@@ -856,10 +936,18 @@ function bindPlayerActions() {
   const progress = $("progress");
   const volume = $("volume");
   const drawer = $("btnDrawer");
+  const player = document.querySelector(".player");
 
   progress.max = "10000";
 
+  player?.addEventListener("mouseenter", wakePlayer);
+  player?.addEventListener("mousemove", wakePlayer);
+  player?.addEventListener("mouseleave", schedulePlayerIdle);
+  player?.addEventListener("pointerdown", wakePlayer);
+  player?.addEventListener("focusin", wakePlayer);
+
   $("btnPlayPause").addEventListener("click", () => {
+    wakePlayer();
     if (!audio.src) {
       if (state.queue.length) playQueueIndex(Math.max(0, state.queueIndex));
       return;
@@ -890,11 +978,11 @@ function bindPlayerActions() {
   });
 
   audio.addEventListener("play", () => {
-    $("btnPlayPause").textContent = "暂停";
+    setPlayPauseUI(true);
   });
 
   audio.addEventListener("pause", () => {
-    $("btnPlayPause").textContent = "播放";
+    setPlayPauseUI(false);
   });
 
   audio.addEventListener("loadedmetadata", () => {
@@ -925,15 +1013,18 @@ function bindPlayerActions() {
   };
 
   progress.addEventListener("pointerdown", () => {
+    wakePlayer();
     state.isScrubbing = true;
   });
 
   progress.addEventListener("pointerup", () => {
     seekToProgress();
     state.isScrubbing = false;
+    schedulePlayerIdle();
   });
 
   progress.addEventListener("input", () => {
+    wakePlayer();
     const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
     if (duration <= 0) return;
     const preview = (Number(progress.value) / 10000) * duration;
@@ -949,10 +1040,12 @@ function bindPlayerActions() {
     if (state.isScrubbing) {
       seekToProgress();
       state.isScrubbing = false;
+      schedulePlayerIdle();
     }
   });
 
   volume.addEventListener("input", () => {
+    wakePlayer();
     audio.volume = Number(volume.value);
   });
   audio.volume = Number(volume.value);
@@ -960,14 +1053,21 @@ function bindPlayerActions() {
   window.addEventListener("resize", () => {
     if (window.innerWidth > 760) {
       setDrawerOpen(false);
+      schedulePlayerIdle();
+    } else {
+      setPlayerIdle(false);
     }
   });
+
+  schedulePlayerIdle();
 }
 
 function initialize() {
   setTheme(state.theme);
   setView(state.view);
   $("btnMode").textContent = getMode().label;
+  setPlayPauseUI(false);
+  setLyricFsCover("");
   $("qualityGlobal").value = state.quality;
   setDrawerOpen(false);
   setLyricFullscreen(false);

@@ -25,13 +25,20 @@
         </nav>
 
         <div class="auth glass-soft">
-          <div class="section-title">登录保护</div>
-          <input id="password" type="password" placeholder="输入 APP_PASSWORD" />
-          <div class="row">
+          <div class="auth-head">
+            <div class="section-title">登录保护</div>
+            <span id="authDot" class="auth-dot"></span>
+          </div>
+          <label class="auth-label">
+            访问密码
+            <input id="password" type="password" placeholder="输入 APP_PASSWORD" autocomplete="current-password" />
+          </label>
+          <div class="row auth-actions">
             <button id="btnLogin" class="btn btn-primary" type="button">登录</button>
             <button id="btnLogout" class="btn btn-ghost" type="button">退出</button>
           </div>
           <div id="authState" class="tips">未登录</div>
+          <div class="auth-help">提示：登录后才能搜索、加载榜单与解析播放链接。</div>
         </div>
       </aside>
 
@@ -39,7 +46,7 @@
         <header class="top glass">
           <div>
             <h1>在线音乐播放器</h1>
-            <p>搜索、榜单、播放队列、实时歌词，全流程沉浸体验。</p>
+            <p>搜索、榜单、播放队列、实时歌词。</p>
           </div>
 
           <div class="top-tools">
@@ -57,17 +64,20 @@
           </div>
         </header>
 
-        <section class="hero glass" id="heroCard">
-          <div>
-            <h2 id="heroTitle">现在就听</h2>
-            <p id="heroDesc">输入关键词开始探索音乐，或从热榜直接播放。</p>
-            <div class="chips">
-              <button class="chip" data-demo="1974443814" data-platform="netease" type="button">网易云示例</button>
-              <button class="chip" data-demo="003aAYrm3GE0Ac" data-platform="qq" type="button">QQ示例</button>
-              <button class="chip" data-demo="228908" data-platform="kuwo" type="button">酷我示例</button>
+        <section class="panel glass lyric-stage" id="lyricsCard">
+          <div class="lyric-stage-top">
+            <div>
+              <h3>实时歌词</h3>
+              <div class="tips">播放歌曲后自动同步，支持逐行点击跳转与全屏沉浸。</div>
+            </div>
+            <div class="row wrap">
+              <button id="btnAutoLyric" class="btn btn-ghost" type="button">歌词滚动：开</button>
+              <button id="btnLyricFullscreen" class="btn btn-ghost" type="button">歌词全屏</button>
             </div>
           </div>
-          <div id="coverHero" class="cover-lg">♫</div>
+          <div id="lyricsRealtime" class="lyrics-box lyrics-main-box">
+            <div class="empty">暂无歌词，请先播放一首歌曲</div>
+          </div>
         </section>
 
         <div class="workspace">
@@ -99,7 +109,7 @@
               </label>
               <label>
                 页码
-                <input id="page" type="number" value="0" min="0" />
+                <input id="page" type="number" value="1" min="1" />
               </label>
               <label>
                 每页
@@ -163,8 +173,6 @@
           <div class="now-sub" id="nowArtist">请选择歌曲开始播放</div>
           <div class="row">
             <button id="btnFav" class="btn btn-ghost" type="button">收藏当前</button>
-            <button id="btnAutoLyric" class="btn btn-ghost" type="button">歌词滚动：开</button>
-            <button id="btnLyricFullscreen" class="btn btn-ghost" type="button">歌词全屏</button>
           </div>
           <div id="parseMsg" class="tips"></div>
         </div>
@@ -172,13 +180,6 @@
         <div class="queue-card">
           <h4>播放队列</h4>
           <div id="queueList" class="queue-list"></div>
-        </div>
-
-        <div class="lyrics-card" id="lyricsCard">
-          <h4>实时歌词</h4>
-          <div id="lyricsRealtime" class="lyrics-box">
-            <div class="empty">暂无歌词，请先播放一首歌曲</div>
-          </div>
         </div>
       </aside>
     </div>
@@ -195,9 +196,9 @@
 
       <div class="controls">
         <div class="row center">
-          <button id="btnPrev" class="btn btn-ghost" type="button">上一首</button>
-          <button id="btnPlayPause" class="btn btn-primary" type="button">播放</button>
-          <button id="btnNext" class="btn btn-ghost" type="button">下一首</button>
+          <button id="btnPrev" class="btn btn-ghost ctrl-btn" type="button" title="上一首" aria-label="上一首">⏮</button>
+          <button id="btnPlayPause" class="btn btn-primary ctrl-btn ctrl-main" type="button" title="播放" aria-label="播放">▶</button>
+          <button id="btnNext" class="btn btn-ghost ctrl-btn" type="button" title="下一首" aria-label="下一首">⏭</button>
           <button id="btnMode" class="btn btn-ghost" type="button">顺序</button>
         </div>
         <div class="progress-row">
@@ -216,6 +217,7 @@
     </footer>
 
     <div id="lyricFullscreen" class="lyric-fullscreen" aria-hidden="true">
+      <div id="lyricFsBg" class="lyric-fs-bg"></div>
       <div class="lyric-fullscreen-inner glass">
         <div class="lyric-fullscreen-top">
           <div>
