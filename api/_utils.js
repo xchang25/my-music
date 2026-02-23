@@ -1,5 +1,9 @@
 const vm = require("vm");
 
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function json(res, status, data) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(data));
@@ -49,10 +53,16 @@ function replaceTemplate(str, vars) {
     const val = String(v);
 
     s = s.replaceAll(`{{${k}}}`, val);
+    s = s.replace(new RegExp(`\\{\\{\\s*${escapeRegExp(k)}\\s*\\}\\}`, "g"), val);
     s = s.replaceAll(`\`+i(r.${k})+\``, val);
     s = s.replaceAll(`\`+i(r.${k}||0)+\``, val);
     s = s.replaceAll(`\`+i(r.${k}||30)+\``, val);
   }
+
+  s = s.replace(/`?\+i\(r\.(\w+)(?:\|\|[^)]*)?\)\+`?/g, (_, key) => {
+    if (Object.prototype.hasOwnProperty.call(vars, key)) return String(vars[key]);
+    return "";
+  });
 
   return s;
 }
@@ -85,6 +95,25 @@ function tryRunTransform(transformCode, responseData) {
   }
 }
 
+function tryParseTextPayload(text) {
+  if (typeof text !== "string") return null;
+  const s = text.trim();
+  if (!s) return null;
+
+  try {
+    return JSON.parse(s);
+  } catch {}
+
+  const jsonp = s.match(/^[\w$]+\((.*)\);?$/s);
+  if (jsonp && jsonp[1]) {
+    try {
+      return JSON.parse(jsonp[1]);
+    } catch {}
+  }
+
+  return null;
+}
+
 function pick(obj, paths) {
   for (const path of paths) {
     const keys = path.split(".");
@@ -103,32 +132,75 @@ function pick(obj, paths) {
   return null;
 }
 
+function pickFirstArray(obj, paths) {
+  for (const path of paths) {
+    const value = pick(obj, [path]);
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
 function normalizeSongs(raw) {
-  const arr = pick(raw, ["data.data", "data.list", "data.songs", "list", "songs", "data"]) || [];
+  const arr = Array.isArray(raw)
+    ? raw
+    : pickFirstArray(raw, [
+        "data.data",
+        "data.list",
+        "data.songs",
+        "data.song.list",
+        "data.result.abslist",
+        "result.abslist",
+        "song.list",
+        "list",
+        "songs",
+        "data"
+      ]);
 
   if (!Array.isArray(arr)) return [];
 
   return arr
     .map((item) => {
-      const id =
+      let id =
         item.id ||
         item.songid ||
+        item.songId ||
+        item.songmid ||
         item.mid ||
         item.rid ||
         item.musicrid ||
         item.MUSICRID ||
+        item.DC_TARGETID ||
         item.hash ||
         "";
 
-      const name = item.name || item.songname || item.title || item.musicName || "";
+      if (typeof id === "string" && id.startsWith("MUSIC_")) {
+        id = id.replace(/^MUSIC_/, "");
+      }
+
+      const name =
+        item.name ||
+        item.songname ||
+        item.songName ||
+        item.SONGNAME ||
+        item.title ||
+        item.musicName ||
+        "";
+
+      const singerArray = Array.isArray(item.singer)
+        ? item.singer.map((a) => (typeof a === "string" ? a : a.name || a.title || "")).filter(Boolean).join("/")
+        : "";
+
       const artist =
         item.artist ||
         item.singer ||
+        item.singername ||
         item.artistname ||
+        item.ARTIST ||
         item.author ||
+        singerArray ||
         (Array.isArray(item.artists) ? item.artists.map((a) => a.name || a).join("/") : "");
-      const album = item.album || item.albumname || item.albumName || "";
-      const cover = item.cover || item.pic || item.img || item.albumPic || "";
+      const album = item.album || item.albumname || item.albumName || item.ALBUM || "";
+      const cover = item.cover || item.pic || item.img || item.albumPic || item.albumpic_big || item.picurl || "";
 
       return {
         id: String(id),
@@ -163,8 +235,8 @@ module.exports = {
   getEnv,
   deepReplace,
   tryRunTransform,
+  tryParseTextPayload,
   normalizeSongs,
   getCacheMap,
   withCache
 };
-

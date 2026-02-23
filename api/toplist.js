@@ -1,7 +1,6 @@
 const {
   json,
   readBody,
-  toInt,
   getEnv,
   deepReplace,
   tryRunTransform,
@@ -13,7 +12,7 @@ const {
 const { requireAuth, applyRateLimit } = require("./_security");
 
 const TTL = 3 * 60 * 1000;
-const cache = getCacheMap("search");
+const cache = getCacheMap("toplist");
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { code: -1, message: "Method Not Allowed" });
@@ -21,42 +20,46 @@ module.exports = async function handler(req, res) {
   const session = requireAuth(req, res);
   if (!session) return;
 
-  const searchMax = Number(process.env.RATE_LIMIT_SEARCH || 60);
-  if (!applyRateLimit(req, res, { keyPrefix: `search:${session.uid}`, windowMs: 60000, max: searchMax })) return;
+  const rankMax = Number(process.env.RATE_LIMIT_RANK || process.env.RATE_LIMIT_SEARCH || 60);
+  if (!applyRateLimit(req, res, { keyPrefix: `toplist:${session.uid}`, windowMs: 60000, max: rankMax })) return;
 
   try {
-    const { baseUrl, apiKey } = getEnv();
-    if (!apiKey) return json(res, 500, { code: -1, message: "服务端未配置 TUNEHUB_API_KEY" });
-
     const body = await readBody(req);
     const platform = body.platform;
-    const keyword = (body.keyword || "").toString().trim();
-    const page = toInt(body.page, 0);
-    const pageSize = toInt(body.pageSize, 20);
-    const debug = !!body.debug;
+    const id = (body.id || "").toString().trim();
 
     if (!["netease", "qq", "kuwo"].includes(platform)) {
-      return json(res, 400, { code: -1, message: "platform 必须是 netease/qq/kuwo" });
+      return json(res, 400, { code: -1, message: "platform must be netease/qq/kuwo" });
     }
-    if (!keyword) return json(res, 400, { code: -1, message: "keyword 不能为空" });
+    if (!id) {
+      return json(res, 400, { code: -1, message: "id is required" });
+    }
 
-    const key = `${platform}|${keyword}|${page}|${pageSize}`;
+    const { baseUrl, apiKey } = getEnv();
+    if (!apiKey) return json(res, 500, { code: -1, message: "TUNEHUB_API_KEY is missing" });
 
-    const { fromCache, value } = await withCache(cache, key, TTL, async () => {
-      const confResp = await fetch(`${baseUrl}/v1/methods/${platform}/search`, {
+    const cacheKey = `${platform}|${id}`;
+    const { fromCache, value } = await withCache(cache, cacheKey, TTL, async () => {
+      const confResp = await fetch(`${baseUrl}/v1/methods/${platform}/toplist`, {
         method: "GET",
         headers: { "X-API-Key": apiKey }
       });
       const confData = await confResp.json();
 
       if (confData.code !== 0 || !confData.data) {
-        return { status: 502, data: { code: -1, message: confData.message || "获取方法配置失败" } };
+        return {
+          status: 502,
+          data: {
+            code: -1,
+            message: confData.message || "failed to get toplist method config"
+          }
+        };
       }
 
       const conf = confData.data;
-      const vars = { keyword, page, pageSize };
       const method = (conf.method || "GET").toUpperCase();
       const headers = conf.headers || {};
+      const vars = { id };
       const params = deepReplace(conf.params || {}, vars);
       const reqBody = deepReplace(conf.body || {}, vars);
 
@@ -73,7 +76,6 @@ module.exports = async function handler(req, res) {
 
       const ct = upResp.headers.get("content-type") || "";
       const raw = ct.includes("application/json") ? await upResp.json() : await upResp.text();
-
       const parsedRaw = typeof raw === "string" ? tryParseTextPayload(raw) || raw : raw;
       const transformed =
         typeof parsedRaw === "object" ? tryRunTransform(conf.transform, parsedRaw) || parsedRaw : parsedRaw;
@@ -90,26 +92,9 @@ module.exports = async function handler(req, res) {
           message: "ok",
           data: {
             platform,
-            keyword,
-            page,
-            pageSize,
+            id,
             count: songs.length,
-            songs,
-            ...(debug
-              ? {
-                  upstream: {
-                    status: upResp.status,
-                    contentType: ct,
-                    url: url.toString(),
-                    method
-                  },
-                  parseHint: {
-                    rawType: typeof raw,
-                    parsedType: typeof parsedRaw,
-                    transformedType: typeof transformed
-                  }
-                }
-              : {})
+            songs
           }
         }
       };
@@ -117,6 +102,7 @@ module.exports = async function handler(req, res) {
 
     return json(res, value.status || 200, { ...value.data, localCache: fromCache });
   } catch (err) {
-    return json(res, 500, { code: -1, message: err?.message || "搜索失败" });
+    return json(res, 500, { code: -1, message: err?.message || "failed to load toplist songs" });
   }
 };
+
