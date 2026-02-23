@@ -3,113 +3,190 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TuneHub 听歌软件 V2</title>
+    <title>轻听 Music Hub</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>🎵 TuneHub 听歌软件（V2）</h1>
-      <p class="sub">已增加登录保护 + 限流防刷。先登录再搜索/播放。</p>
-
-      <section class="card">
-        <h2>0) 登录</h2>
-        <div class="grid">
-          <label
-            >访问密码
-            <input id="password" type="password" placeholder="输入 APP_PASSWORD" />
-          </label>
-        </div>
-        <div class="row">
-          <button id="btnLogin">登录</button>
-          <button id="btnLogout" class="btn-secondary">退出</button>
-        </div>
-        <div id="authState" class="msg"></div>
-      </section>
-
-      <section class="card">
-        <h2>1) 搜索歌曲</h2>
-        <div class="grid">
-          <label
-            >平台
-            <select id="searchPlatform">
-              <option value="netease">网易云</option>
-              <option value="qq">QQ音乐</option>
-              <option value="kuwo">酷我</option>
-            </select>
-          </label>
-          <label
-            >关键词
-            <input id="keyword" placeholder="例如：周杰伦 稻香" />
-          </label>
-          <label
-            >页码
-            <input id="page" type="number" value="0" min="0" />
-          </label>
-          <label
-            >每页
-            <input id="pageSize" type="number" value="20" min="1" max="50" />
-          </label>
-        </div>
-        <button id="btnSearch">搜索</button>
-        <div id="searchMsg" class="msg"></div>
-        <div id="searchList" class="list"></div>
-      </section>
-
-      <section class="card">
-        <h2>2) 解析并播放</h2>
-        <div class="grid">
-          <label
-            >平台
-            <select id="parsePlatform">
-              <option value="netease">网易云</option>
-              <option value="qq">QQ音乐</option>
-              <option value="kuwo">酷我</option>
-            </select>
-          </label>
-          <label
-            >歌曲ID（多个可逗号分隔）
-            <input id="ids" placeholder="例如：1974443814" />
-          </label>
-          <label
-            >音质
-            <select id="quality">
-              <option value="128k">128k</option>
-              <option value="320k" selected>320k</option>
-              <option value="flac">flac</option>
-              <option value="flac24bit">flac24bit</option>
-            </select>
-          </label>
-        </div>
-        <button id="btnParse">解析播放</button>
-        <div id="parseMsg" class="msg"></div>
-
-        <h3 id="songTitle">尚未播放</h3>
-        <audio id="player" controls></audio>
-        <div class="actions">
-          <button id="btnFav">收藏当前歌曲</button>
+    <div class="app-layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-logo">♫</div>
+          <div>
+            <div class="brand-title">Music Hub</div>
+            <div class="brand-sub">沉浸式在线音乐</div>
+          </div>
         </div>
 
-        <details>
-          <summary>歌词</summary>
-          <pre id="lyrics">暂无歌词</pre>
-        </details>
+        <nav class="sidebar-nav">
+          <a class="nav-item active" href="#searchPanel">搜索</a>
+          <a class="nav-item" href="#rankPanel">排行榜</a>
+          <a class="nav-item" href="#playPanel">播放器</a>
+          <a class="nav-item" href="#libraryPanel">我的音乐</a>
+        </nav>
 
-        <details>
-          <summary>原始 JSON（调试）</summary>
-          <pre id="raw"></pre>
-        </details>
-      </section>
+        <div class="auth-panel panel-soft">
+          <div class="panel-title">登录保护</div>
+          <input id="password" type="password" placeholder="输入 APP_PASSWORD" />
+          <div class="btn-group">
+            <button id="btnLogin" class="btn-primary" type="button">登录</button>
+            <button id="btnLogout" class="btn-ghost" type="button">退出</button>
+          </div>
+          <div id="authState" class="msg">未登录</div>
+        </div>
+      </aside>
 
-      <section class="card">
-        <h2>3) 收藏</h2>
-        <div id="favList" class="list"></div>
-      </section>
+      <div class="main-wrap">
+        <header class="topbar panel-soft">
+          <div>
+            <h1>成熟 APP 风格音乐页</h1>
+            <p>支持搜索、排行榜、歌曲解析、实时歌词高亮与自动滚动。</p>
+          </div>
+          <span class="badge" id="topAuthBadge">未登录</span>
+        </header>
 
-      <section class="card">
-        <h2>4) 最近播放</h2>
-        <div id="hisList" class="list"></div>
-      </section>
-    </main>
+        <main class="content-grid">
+          <section class="panel hero-panel">
+            <div class="hero-text">
+              <h2>发现你喜欢的音乐</h2>
+              <p>输入关键词快速搜索，或直接从热歌榜单中点播。</p>
+              <div class="chip-row">
+                <button class="chip" data-demo="1974443814" data-platform="netease" type="button">网易云示例</button>
+                <button class="chip" data-demo="003aAYrm3GE0Ac" data-platform="qq" type="button">QQ示例</button>
+                <button class="chip" data-demo="228908" data-platform="kuwo" type="button">酷我示例</button>
+              </div>
+            </div>
+            <div class="hero-cover" id="nowCover">♫</div>
+          </section>
+
+          <section class="panel search-panel" id="searchPanel">
+            <h3>搜索歌曲</h3>
+            <div class="form-grid">
+              <label>
+                平台
+                <select id="searchPlatform">
+                  <option value="netease">网易云</option>
+                  <option value="qq">QQ音乐</option>
+                  <option value="kuwo">酷我</option>
+                </select>
+              </label>
+              <label>
+                关键词
+                <input id="keyword" placeholder="例如：周杰伦 稻香" />
+              </label>
+              <label>
+                页码
+                <input id="page" type="number" min="0" value="0" />
+              </label>
+              <label>
+                每页
+                <input id="pageSize" type="number" min="1" max="50" value="20" />
+              </label>
+            </div>
+            <div class="btn-row">
+              <button id="btnSearch" class="btn-primary" type="button">开始搜索</button>
+            </div>
+            <div id="searchMsg" class="msg"></div>
+            <div id="searchList" class="song-list"></div>
+          </section>
+
+          <section class="panel rank-panel" id="rankPanel">
+            <h3>排行榜</h3>
+            <div class="form-inline">
+              <label>
+                平台
+                <select id="rankPlatform">
+                  <option value="netease">网易云</option>
+                  <option value="qq">QQ音乐</option>
+                  <option value="kuwo">酷我</option>
+                </select>
+              </label>
+              <button id="btnLoadToplists" class="btn-primary" type="button">加载榜单</button>
+            </div>
+            <div id="toplistMsg" class="msg"></div>
+            <div class="rank-grid">
+              <div>
+                <h4>榜单列表</h4>
+                <div id="toplistList" class="rank-list"></div>
+              </div>
+              <div>
+                <h4 id="topSongsTitle">榜单歌曲</h4>
+                <div id="topSongList" class="song-list compact"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel play-panel" id="playPanel">
+            <h3>解析与播放</h3>
+            <div class="form-grid">
+              <label>
+                平台
+                <select id="parsePlatform">
+                  <option value="netease">网易云</option>
+                  <option value="qq">QQ音乐</option>
+                  <option value="kuwo">酷我</option>
+                </select>
+              </label>
+              <label>
+                歌曲 ID（多个可逗号分隔）
+                <input id="ids" placeholder="例如：1974443814" />
+              </label>
+              <label>
+                音质
+                <select id="quality">
+                  <option value="128k">128k</option>
+                  <option value="320k" selected>320k</option>
+                  <option value="flac">flac</option>
+                  <option value="flac24bit">flac24bit</option>
+                </select>
+              </label>
+            </div>
+            <div class="btn-row">
+              <button id="btnParse" class="btn-primary" type="button">解析并播放</button>
+              <button id="btnFav" class="btn-ghost" type="button">收藏当前歌曲</button>
+            </div>
+            <div id="parseMsg" class="msg"></div>
+
+            <div class="now-playing panel-soft">
+              <div>
+                <div class="now-title" id="songTitle">尚未播放</div>
+                <div class="now-meta" id="nowArtist">请选择歌曲开始播放</div>
+              </div>
+              <button id="btnAutoLyric" class="btn-ghost btn-small" type="button">歌词自动滚动：开</button>
+            </div>
+
+            <div class="lyrics-realtime" id="lyricsRealtime">
+              <div class="empty-hint">暂无歌词，请先播放一首歌曲</div>
+            </div>
+
+            <details>
+              <summary>原始 JSON（调试）</summary>
+              <pre id="raw"></pre>
+            </details>
+          </section>
+
+          <section class="panel library-panel" id="libraryPanel">
+            <h3>我的收藏</h3>
+            <div id="favList" class="song-list compact"></div>
+          </section>
+
+          <section class="panel library-panel">
+            <h3>最近播放</h3>
+            <div id="hisList" class="song-list compact"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <footer class="bottom-player">
+      <div class="mini-meta">
+        <div class="mini-cover" id="miniCover">♫</div>
+        <div>
+          <div id="miniTitle">未在播放</div>
+          <div id="miniSub">登录后开始搜索音乐</div>
+        </div>
+      </div>
+      <audio id="player" controls></audio>
+    </footer>
 
     <script src="./app.js"></script>
   </body>
