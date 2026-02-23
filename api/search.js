@@ -54,34 +54,71 @@ module.exports = async function handler(req, res) {
       }
 
       const conf = confData.data;
-      const vars = { keyword, page, pageSize };
       const method = (conf.method || "GET").toUpperCase();
       const headers = conf.headers || {};
-      const params = deepReplace(conf.params || {}, vars);
-      const reqBody = deepReplace(conf.body || {}, vars);
 
-      const url = new URL(conf.url);
-      if (method === "GET") {
-        url.search = new URLSearchParams(params).toString();
+      let resolvedUrl = "";
+      try {
+        resolvedUrl = new URL(conf.url).toString();
+      } catch {
+        resolvedUrl = new URL(String(conf.url || ""), baseUrl).toString();
       }
 
-      const upResp = await fetch(url.toString(), {
-        method,
-        headers,
-        body: method === "POST" ? JSON.stringify(reqBody) : undefined
-      });
+      const runSearchOnce = async (pageValue) => {
+        const vars = { keyword, page: pageValue, pageSize };
+        const params = deepReplace(conf.params || {}, vars);
+        const reqBody = deepReplace(conf.body || {}, vars);
 
-      const ct = upResp.headers.get("content-type") || "";
-      const raw = ct.includes("application/json") ? await upResp.json() : await upResp.text();
+        const url = new URL(resolvedUrl);
+        Object.entries(params || {}).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === "") return;
+          url.searchParams.set(key, String(value));
+        });
 
-      const parsedRaw = typeof raw === "string" ? tryParseTextPayload(raw) || raw : raw;
-      const transformed =
-        typeof parsedRaw === "object" ? tryRunTransform(conf.transform, parsedRaw) || parsedRaw : parsedRaw;
+        const reqHeaders = { ...(headers || {}) };
+        const requestInit = {
+          method,
+          headers: reqHeaders
+        };
 
-      let songs = typeof transformed === "object" ? normalizeSongs(transformed) : [];
-      if ((!songs || songs.length === 0) && typeof parsedRaw === "object") {
-        songs = normalizeSongs(parsedRaw);
+        if (method === "POST") {
+          const ctPair = Object.entries(reqHeaders).find(([k]) => k.toLowerCase() === "content-type");
+          const ct = String(ctPair?.[1] || "").toLowerCase();
+
+          if (typeof reqBody === "string") {
+            requestInit.body = reqBody;
+          } else if (ct.includes("application/x-www-form-urlencoded")) {
+            requestInit.body = new URLSearchParams(reqBody || {}).toString();
+          } else {
+            if (!ct) reqHeaders["Content-Type"] = "application/json";
+            requestInit.body = JSON.stringify(reqBody || {});
+          }
+        }
+
+        const upResp = await fetch(url.toString(), requestInit);
+        const ct = upResp.headers.get("content-type") || "";
+        const raw = ct.includes("application/json") ? await upResp.json() : await upResp.text();
+        const parsedRaw = typeof raw === "string" ? tryParseTextPayload(raw) || raw : raw;
+        const transformed =
+          typeof parsedRaw === "object" ? tryRunTransform(conf.transform, parsedRaw) || parsedRaw : parsedRaw;
+
+        let songs = typeof transformed === "object" ? normalizeSongs(transformed) : [];
+        if ((!songs || songs.length === 0) && typeof parsedRaw === "object") {
+          songs = normalizeSongs(parsedRaw);
+        }
+
+        return { upResp, ct, raw, parsedRaw, transformed, songs, pageValue, url };
+      };
+
+      let result = await runSearchOnce(page);
+      if ((!result.songs || result.songs.length === 0) && page >= 1) {
+        const alt = await runSearchOnce(page - 1);
+        if (alt.songs && alt.songs.length > 0) {
+          result = alt;
+        }
       }
+
+      const { upResp, ct, raw, parsedRaw, transformed, songs, pageValue, url } = result;
 
       return {
         status: 200,
@@ -91,7 +128,7 @@ module.exports = async function handler(req, res) {
           data: {
             platform,
             keyword,
-            page,
+            page: pageValue,
             pageSize,
             count: songs.length,
             songs,
