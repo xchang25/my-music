@@ -334,6 +334,10 @@ function setPlayerIdle(idle) {
 
 function schedulePlayerIdle() {
   if (window.innerWidth <= 760) return;
+  if (audio.paused) {
+    setPlayerIdle(false);
+    return;
+  }
   if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
   state.playerIdleTimer = setTimeout(() => {
     if (state.progressHover && Date.now() - state.progressHoverSince > 1800) {
@@ -347,7 +351,7 @@ function schedulePlayerIdle() {
 function wakePlayer() {
   if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
   setPlayerIdle(false);
-  schedulePlayerIdle();
+  if (!audio.paused) schedulePlayerIdle();
 }
 
 function focusLyricsArea() {
@@ -943,9 +947,15 @@ function renderLyrics(lines) {
     }
 
     box.innerHTML = "";
+    const topSpacer = document.createElement("div");
+    topSpacer.className = "lyric-spacer";
+    box.appendChild(topSpacer);
     lines.forEach((line, idx) => {
       box.appendChild(createLyricLineNode(line, idx));
     });
+    const bottomSpacer = document.createElement("div");
+    bottomSpacer.className = "lyric-spacer";
+    box.appendChild(bottomSpacer);
   });
 }
 
@@ -965,6 +975,7 @@ function setActiveLyric(index, wordIndex = -1) {
   setText("lyricCurrentLine", `当前歌词：${activeText}`);
 
   boxes.forEach((box) => {
+    const previousActiveNode = box.querySelector(".lyric-line.active");
     box.querySelectorAll(".lyric-line").forEach((lineNode) => {
       const currentIndex = Number(lineNode.dataset.index || -1);
       const isActive = index >= 0 && currentIndex === index;
@@ -980,6 +991,11 @@ function setActiveLyric(index, wordIndex = -1) {
     const node = box.querySelector(`.lyric-line[data-index=\"${index}\"]`);
     if (!node) return;
     node.classList.add("active");
+    if (previousActiveNode !== node) {
+      node.classList.remove("active-hit");
+      void node.offsetWidth;
+      node.classList.add("active-hit");
+    }
 
     const effectiveWordIndex =
       wordIndex >= 0
@@ -990,15 +1006,20 @@ function setActiveLyric(index, wordIndex = -1) {
 
     if (effectiveWordIndex >= 0) {
       const word = node.querySelector(`.lyric-word[data-widx=\"${effectiveWordIndex}\"]`);
-      if (word) word.classList.add("active-word");
+      if (word) {
+        word.classList.remove("word-hit");
+        void word.offsetWidth;
+        word.classList.add("active-word", "word-hit");
+      }
     }
 
-    if (state.lyricAutoScroll) {
+    const shouldCenter = box.id === "lyricsRealtime" || state.lyricAutoScroll;
+    if (shouldCenter) {
       const targetTop = node.offsetTop + node.clientHeight / 2 - box.clientHeight / 2;
       const maxTop = Math.max(0, box.scrollHeight - box.clientHeight);
       const clampedTop = Math.max(0, Math.min(maxTop, targetTop));
       if (Math.abs(clampedTop - box.scrollTop) > 6) {
-        box.scrollTo({ top: clampedTop, behavior: "smooth" });
+        box.scrollTo({ top: clampedTop, behavior: box.id === "lyricsRealtime" ? "auto" : "smooth" });
       }
     }
   });
@@ -1691,12 +1712,15 @@ function bindPlayerActions() {
 
   audio.addEventListener("play", () => {
     setPlayPauseUI(true);
+    wakePlayer();
   });
 
   $("btnQueueClear")?.addEventListener("click", clearQueue);
 
   audio.addEventListener("pause", () => {
     setPlayPauseUI(false);
+    if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
+    setPlayerIdle(false);
   });
 
   audio.addEventListener("loadedmetadata", () => {
