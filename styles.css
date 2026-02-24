@@ -383,6 +383,18 @@ select:focus-visible {
   max-height: 400px;
 }
 
+.lyric-current-line {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(142, 161, 255, 0.1);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .hidden {
   display: none;
 }
@@ -417,6 +429,10 @@ select:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.form-grid label {
+  align-content: start;
 }
 
 label {
@@ -535,6 +551,7 @@ input::placeholder {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 #searchPageHint {
@@ -542,6 +559,12 @@ input::placeholder {
   min-height: 0;
   font-size: 12px;
   color: var(--muted);
+  flex: 1;
+  text-align: center;
+}
+
+.search-pager .btn {
+  min-width: 86px;
 }
 
 body.light .parse-obs .pill {
@@ -1058,6 +1081,8 @@ h4 {
   border-radius: 8px;
   color: #c5cde8;
   font-size: calc(16px * var(--lyric-scale));
+  white-space: pre-wrap;
+  word-break: break-word;
   transition:
     opacity 0.22s ease,
     transform 0.22s ease,
@@ -1072,6 +1097,7 @@ body.light .lyric-line {
 .lyric-line.active {
   background: rgba(142, 161, 255, 0.22);
   color: var(--text);
+  opacity: 1;
   animation: lyricGlow 0.34s ease;
   transform: translateY(-1px);
 }
@@ -1328,7 +1354,7 @@ body.light .lyric-word.active-word {
 @media (max-width: 1120px) {
   .app {
     grid-template-columns: 1fr;
-    padding-bottom: 170px;
+    padding-bottom: 230px;
   }
 
   .sidebar,
@@ -1350,7 +1376,7 @@ body.light .lyric-word.active-word {
     position: fixed;
     left: 14px;
     right: 14px;
-    bottom: 86px;
+    bottom: calc(128px + env(safe-area-inset-bottom));
     z-index: 78;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1375,7 +1401,11 @@ body.light .lyric-word.active-word {
   .mobile-nav {
     left: 10px;
     right: 10px;
-    bottom: 78px;
+    bottom: calc(124px + env(safe-area-inset-bottom));
+  }
+
+  .app {
+    padding-bottom: 268px;
   }
 
   .player-actions {
@@ -1415,6 +1445,10 @@ body.light .lyric-word.active-word {
     font-size: 12px;
   }
 
+  .right {
+    display: none;
+  }
+
   .song-item {
     grid-template-columns: 40px minmax(0, 1fr);
   }
@@ -1441,6 +1475,7 @@ body.light .lyric-word.active-word {
     max-height: none;
     overflow: visible;
     transition: padding 0.2s ease;
+    z-index: 90;
   }
 
   .player .controls,

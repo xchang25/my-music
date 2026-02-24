@@ -916,9 +916,24 @@ function createLyricLineNode(line, idx) {
   return node;
 }
 
+function getLyricLineText(line) {
+  if (!line || typeof line !== "object") return "♪";
+  const wordText = Array.isArray(line.words)
+    ? line.words
+        .map((word) => String(word?.text || ""))
+        .join("")
+        .trim()
+    : "";
+  return wordText || String(line.text || "♪").trim() || "♪";
+}
+
 function renderLyrics(lines) {
   const boxes = [$("lyricsRealtime"), $("lyricsFullscreenList")].filter(Boolean);
   if (!boxes.length) return;
+
+  if (!lines.length) {
+    setText("lyricCurrentLine", "当前歌词：暂无");
+  }
 
   boxes.forEach((box) => {
     if (!lines.length) {
@@ -937,6 +952,10 @@ function setActiveLyric(index, wordIndex = -1) {
   const boxes = [$("lyricsRealtime"), $("lyricsFullscreenList")].filter(Boolean);
   if (!boxes.length) return;
 
+  const activeLine = index >= 0 ? state.lyricLines[index] : null;
+  const activeText = activeLine ? getLyricLineText(activeLine) : "暂无";
+  setText("lyricCurrentLine", `当前歌词：${activeText}`);
+
   boxes.forEach((box) => {
     box.querySelectorAll(".lyric-line").forEach((lineNode) => {
       const currentIndex = Number(lineNode.dataset.index || -1);
@@ -954,8 +973,15 @@ function setActiveLyric(index, wordIndex = -1) {
     if (!node) return;
     node.classList.add("active");
 
-    if (wordIndex >= 0) {
-      const word = node.querySelector(`.lyric-word[data-widx=\"${wordIndex}\"]`);
+    const effectiveWordIndex =
+      wordIndex >= 0
+        ? wordIndex
+        : Array.isArray(state.lyricLines[index]?.words) && state.lyricLines[index].words.length
+          ? 0
+          : -1;
+
+    if (effectiveWordIndex >= 0) {
+      const word = node.querySelector(`.lyric-word[data-widx=\"${effectiveWordIndex}\"]`);
       if (word) word.classList.add("active-word");
     }
 
