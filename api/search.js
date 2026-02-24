@@ -1,3 +1,4 @@
+const vm = require("vm");
 const {
   json,
   readBody,
@@ -26,7 +27,6 @@ module.exports = async function handler(req, res) {
 
   try {
     const { baseUrl, apiKey } = getEnv();
-    if (!apiKey) return json(res, 500, { code: -1, message: "服务端未配置 TUNEHUB_API_KEY" });
 
     const body = await readBody(req);
     const platform = body.platform;
@@ -43,19 +43,50 @@ module.exports = async function handler(req, res) {
     const key = `${platform}|${keyword}|${page}|${pageSize}`;
 
     const { fromCache, value } = await withCache(cache, key, TTL, async () => {
-      const normalizeQQDirectSongs = (raw) => {
+      const toResult = ({ songs, pageValue, upResp, ct, raw, parsedRaw, transformed, url, method, source }) => ({
+        status: 200,
+        data: {
+          code: 0,
+          message: "ok",
+          data: {
+            platform,
+            keyword,
+            page: pageValue,
+            pageSize,
+            count: songs.length,
+            songs,
+            ...(debug
+              ? {
+                  upstream: {
+                    status: upResp.status,
+                    contentType: ct,
+                    url: url.toString(),
+                    method,
+                    source
+                  },
+                  parseHint: {
+                    rawType: typeof raw,
+                    parsedType: typeof parsedRaw,
+                    transformedType: typeof transformed
+                  }
+                }
+              : {})
+          }
+        }
+      });
+
+      const normalizeQQDirectSongs = (rawPayload) => {
         const list =
-          raw?.req?.data?.body?.item_song ||
-          raw?.req?.data?.body?.song?.item_song ||
-          raw?.req?.data?.body?.song?.list ||
-          raw?.req?.data?.body?.song?.itemlist ||
-          raw?.req_1?.data?.body?.item_song ||
-          raw?.req_1?.data?.body?.song?.item_song ||
-          raw?.req_1?.data?.body?.song?.list ||
+          rawPayload?.req?.data?.body?.item_song ||
+          rawPayload?.req?.data?.body?.song?.item_song ||
+          rawPayload?.req?.data?.body?.song?.list ||
+          rawPayload?.req?.data?.body?.song?.itemlist ||
+          rawPayload?.req_1?.data?.body?.item_song ||
+          rawPayload?.req_1?.data?.body?.song?.item_song ||
+          rawPayload?.req_1?.data?.body?.song?.list ||
           [];
 
         if (!Array.isArray(list)) return [];
-
         return list
           .map((item) => {
             const id = item?.mid || item?.songmid || item?.id || "";
@@ -68,14 +99,59 @@ module.exports = async function handler(req, res) {
             const albumMid = item?.album?.mid || item?.albummid || "";
             const album = item?.album?.name || item?.albumname || "";
             const cover = albumMid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albumMid}.jpg` : "";
+            return { id: String(id), name: String(name), artist: String(artist), album: String(album), cover: String(cover) };
+          })
+          .filter((song) => song.id && song.name);
+      };
 
-            return {
-              id: String(id),
-              name: String(name),
-              artist: String(artist),
-              album: String(album),
-              cover: String(cover)
-            };
+      const normalizeNeteaseDirectSongs = (rawPayload) => {
+        const list = rawPayload?.result?.songs || [];
+        if (!Array.isArray(list)) return [];
+        return list
+          .map((item) => {
+            const id = item?.id || "";
+            const name = item?.name || item?.songname || "";
+            const artists = Array.isArray(item?.artists) ? item.artists : [];
+            const artist = artists
+              .map((entry) => (typeof entry === "string" ? entry : entry?.name || ""))
+              .filter(Boolean)
+              .join("/");
+            const album = item?.album?.name || "";
+            const picId = item?.album?.picId || 0;
+            const cover = picId ? `https://p2.music.126.net/${picId}/${picId}.jpg` : "";
+            return { id: String(id), name: String(name), artist: String(artist), album: String(album), cover: String(cover) };
+          })
+          .filter((song) => song.id && song.name);
+      };
+
+      const parseKuwoLegacyPayload = (text) => {
+        if (typeof text !== "string") return null;
+        const fromJson = tryParseTextPayload(text);
+        if (fromJson && typeof fromJson === "object") return fromJson;
+        try {
+          return vm.runInNewContext(`(${text})`, {}, { timeout: 120 });
+        } catch {
+          return null;
+        }
+      };
+
+      const normalizeKuwoDirectSongs = (rawPayload) => {
+        const list = rawPayload?.abslist || rawPayload?.data?.list || [];
+        if (!Array.isArray(list)) return [];
+        return list
+          .map((item) => {
+            let id = item?.MUSICRID || item?.DC_TARGETID || item?.rid || item?.id || "";
+            if (typeof id === "string" && id.startsWith("MUSIC_")) id = id.replace(/^MUSIC_/, "");
+            const name = item?.NAME || item?.SONGNAME || item?.name || "";
+            const artist = item?.ARTIST || item?.SINGERNAME || item?.artist || "";
+            const album = item?.ALBUM || item?.album || "";
+            const shortCover = item?.web_albumpic_short || "";
+            const cover = /^https?:\/\//i.test(shortCover)
+              ? shortCover
+              : shortCover && shortCover.startsWith("/")
+                ? `https://img4.kuwo.cn${shortCover}`
+                : "";
+            return { id: String(id), name: String(name), artist: String(artist), album: String(album), cover: String(cover) };
           })
           .filter((song) => song.id && song.name);
       };
@@ -112,7 +188,9 @@ module.exports = async function handler(req, res) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)"
+            "User-Agent": "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)",
+            Referer: "https://y.qq.com/",
+            Origin: "https://y.qq.com"
           },
           body: JSON.stringify(payload)
         });
@@ -121,7 +199,6 @@ module.exports = async function handler(req, res) {
         const raw = ct.includes("application/json") ? await upResp.json() : await upResp.text();
         const parsedRaw = typeof raw === "string" ? tryParseTextPayload(raw) || raw : raw;
         const songs = typeof parsedRaw === "object" ? normalizeQQDirectSongs(parsedRaw) : [];
-
         return {
           upResp,
           ct,
@@ -136,49 +213,103 @@ module.exports = async function handler(req, res) {
         };
       };
 
-      if (platform === "qq") {
-        let directResult = await runQQDirectSearchOnce(page);
-        if ((!directResult.songs || directResult.songs.length === 0) && page >= 1) {
-          const alt = await runQQDirectSearchOnce(page - 1);
-          if (alt.songs && alt.songs.length > 0) {
-            directResult = alt;
+      const runNeteaseDirectSearchOnce = async (pageValue) => {
+        const pageNum = Math.max(1, toInt(pageValue, 1));
+        const endpoint = new URL("https://music.163.com/api/search/get");
+        endpoint.searchParams.set("s", keyword);
+        endpoint.searchParams.set("type", "1");
+        endpoint.searchParams.set("offset", String((pageNum - 1) * pageSize));
+        endpoint.searchParams.set("limit", String(pageSize));
+
+        const upResp = await fetch(endpoint.toString(), {
+          method: "GET",
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            Referer: "https://music.163.com/"
           }
+        });
+
+        const ct = upResp.headers.get("content-type") || "";
+        const raw = ct.includes("application/json") ? await upResp.json() : await upResp.text();
+        const parsedRaw = typeof raw === "string" ? tryParseTextPayload(raw) || raw : raw;
+        const songs = typeof parsedRaw === "object" ? normalizeNeteaseDirectSongs(parsedRaw) : [];
+        return {
+          upResp,
+          ct,
+          raw,
+          parsedRaw,
+          transformed: parsedRaw,
+          songs,
+          pageValue: pageNum,
+          url: endpoint,
+          method: "GET",
+          source: "netease_direct"
+        };
+      };
+
+      const runKuwoDirectSearchOnce = async (pageValue) => {
+        const pageNum = Math.max(1, toInt(pageValue, 1));
+        const endpoint = new URL("https://search.kuwo.cn/r.s");
+        endpoint.searchParams.set("all", keyword);
+        endpoint.searchParams.set("ft", "music");
+        endpoint.searchParams.set("itemset", "web_2013");
+        endpoint.searchParams.set("client", "kt");
+        endpoint.searchParams.set("pn", String(pageNum - 1));
+        endpoint.searchParams.set("rn", String(pageSize));
+        endpoint.searchParams.set("rformat", "json");
+        endpoint.searchParams.set("encoding", "utf8");
+
+        const upResp = await fetch(endpoint.toString(), {
+          method: "GET",
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            Referer: "https://www.kuwo.cn/"
+          }
+        });
+
+        const ct = upResp.headers.get("content-type") || "";
+        const raw = await upResp.text();
+        const parsedRaw = parseKuwoLegacyPayload(raw) || (ct.includes("application/json") ? tryParseTextPayload(raw) || {} : {});
+        const songs = typeof parsedRaw === "object" ? normalizeKuwoDirectSongs(parsedRaw) : [];
+        return {
+          upResp,
+          ct,
+          raw,
+          parsedRaw,
+          transformed: parsedRaw,
+          songs,
+          pageValue: pageNum,
+          url: endpoint,
+          method: "GET",
+          source: "kuwo_direct"
+        };
+      };
+
+      const runDirectSearchOnce = async (pageValue) => {
+        if (platform === "qq") return runQQDirectSearchOnce(pageValue);
+        if (platform === "netease") return runNeteaseDirectSearchOnce(pageValue);
+        if (platform === "kuwo") return runKuwoDirectSearchOnce(pageValue);
+        return null;
+      };
+
+      try {
+        let directResult = await runDirectSearchOnce(page);
+        if (directResult && (!directResult.songs || directResult.songs.length === 0) && page >= 1) {
+          const alt = await runDirectSearchOnce(page - 1);
+          if (alt?.songs?.length) directResult = alt;
         }
 
-        if (directResult.songs && directResult.songs.length > 0) {
-          const { upResp, ct, raw, parsedRaw, transformed, songs, pageValue, url, method, source } = directResult;
-          return {
-            status: 200,
-            data: {
-              code: 0,
-              message: "ok",
-              data: {
-                platform,
-                keyword,
-                page: pageValue,
-                pageSize,
-                count: songs.length,
-                songs,
-                ...(debug
-                  ? {
-                      upstream: {
-                        status: upResp.status,
-                        contentType: ct,
-                        url: url.toString(),
-                        method,
-                        source
-                      },
-                      parseHint: {
-                        rawType: typeof raw,
-                        parsedType: typeof parsedRaw,
-                        transformedType: typeof transformed
-                      }
-                    }
-                  : {})
-              }
-            }
-          };
+        if (directResult?.songs?.length) {
+          return toResult(directResult);
         }
+      } catch {
+      }
+
+      if (!apiKey) {
+        return {
+          status: 500,
+          data: { code: -1, message: "直连搜索无结果，且服务端未配置 TUNEHUB_API_KEY" }
+        };
       }
 
       const confResp = await fetch(`${baseUrl}/v1/methods/${platform}/search`, {
@@ -208,9 +339,9 @@ module.exports = async function handler(req, res) {
         const reqBody = deepReplace(conf.body || {}, vars);
 
         const url = new URL(resolvedUrl);
-        Object.entries(params || {}).forEach(([key, value]) => {
+        Object.entries(params || {}).forEach(([keyName, value]) => {
           if (value === undefined || value === null || value === "") return;
-          url.searchParams.set(key, String(value));
+          url.searchParams.set(keyName, String(value));
         });
 
         const reqHeaders = { ...(headers || {}) };
@@ -245,7 +376,18 @@ module.exports = async function handler(req, res) {
           songs = normalizeSongs(parsedRaw);
         }
 
-        return { upResp, ct, raw, parsedRaw, transformed, songs, pageValue, url };
+        return {
+          upResp,
+          ct,
+          raw,
+          parsedRaw,
+          transformed,
+          songs,
+          pageValue,
+          url,
+          method,
+          source: "tunehub_method"
+        };
       };
 
       let result = await runSearchOnce(page);
@@ -256,38 +398,7 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      const { upResp, ct, raw, parsedRaw, transformed, songs, pageValue, url } = result;
-
-      return {
-        status: 200,
-        data: {
-          code: 0,
-          message: "ok",
-          data: {
-            platform,
-            keyword,
-            page: pageValue,
-            pageSize,
-            count: songs.length,
-            songs,
-            ...(debug
-              ? {
-                  upstream: {
-                    status: upResp.status,
-                    contentType: ct,
-                    url: url.toString(),
-                    method
-                  },
-                  parseHint: {
-                    rawType: typeof raw,
-                    parsedType: typeof parsedRaw,
-                    transformedType: typeof transformed
-                  }
-                }
-              : {})
-          }
-        }
-      };
+      return toResult(result);
     });
 
     return json(res, value.status || 200, { ...value.data, localCache: fromCache });
