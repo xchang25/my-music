@@ -16,6 +16,7 @@ function run() {
 
   const indexHtml = read(path.join(root, "index.html"));
   const appJs = read(path.join(root, "app.js"));
+  const apiSearch = read(path.join(root, "api", "search.js"));
   const stylesCss = read(path.join(root, "styles.css"));
   const loginApi = read(path.join(root, "api", "login.js"));
   const apiUtils = read(path.join(root, "api", "_utils.js"));
@@ -76,6 +77,7 @@ function run() {
   const mustHaveLoginApi = ["MAX_FAIL_COUNT", "LOCK_MS", "登录失败次数过多"];
   const mustHaveApiUtils = ["data.result.songs", "songInfo", "albumCover"];
   const mustHaveOpenSearchApi = ["itunes.apple.com/search", "directUrl", "search-open:"];
+  const mustHaveSearchApi = ["DoSearchForQQMusicLite", "u.y.qq.com/cgi-bin/musicu.fcg", "qq_direct"];
 
   mustHaveIndex.forEach((token) => {
     assert(indexHtml.includes(token), `index.html 缺少关键标记: ${token}`);
@@ -99,6 +101,10 @@ function run() {
 
   mustHaveOpenSearchApi.forEach((token) => {
     assert(openSearchApi.includes(token), `api/search_open.js 缺少开放搜索逻辑: ${token}`);
+  });
+
+  mustHaveSearchApi.forEach((token) => {
+    assert(apiSearch.includes(token), `api/search.js 缺少 QQ 直连搜索逻辑: ${token}`);
   });
 
   assert(packageJson?.scripts?.check, "package.json 缺少 check 脚本");
