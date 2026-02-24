@@ -19,6 +19,7 @@ function run() {
   const stylesCss = read(path.join(root, "styles.css"));
   const loginApi = read(path.join(root, "api", "login.js"));
   const apiUtils = read(path.join(root, "api", "_utils.js"));
+  const openSearchApi = read(path.join(root, "api", "search_open.js"));
   const packageJson = JSON.parse(read(path.join(root, "package.json")));
 
   const mustHaveIndex = [
@@ -47,6 +48,7 @@ function run() {
     "function buildSearchPlatformOrder(",
     "function summarizeSearchAttempts(",
     "function dedupeSongs(",
+    "function doOpenSearchRequest(",
     "function searchSongs()",
     "function renderQueue()",
     "function cycleLyricScale()",
@@ -70,6 +72,7 @@ function run() {
 
   const mustHaveLoginApi = ["MAX_FAIL_COUNT", "LOCK_MS", "登录失败次数过多"];
   const mustHaveApiUtils = ["data.result.songs", "songInfo", "albumCover"];
+  const mustHaveOpenSearchApi = ["itunes.apple.com/search", "directUrl", "search-open:"];
 
   mustHaveIndex.forEach((token) => {
     assert(indexHtml.includes(token), `index.html 缺少关键标记: ${token}`);
@@ -89,6 +92,10 @@ function run() {
 
   mustHaveApiUtils.forEach((token) => {
     assert(apiUtils.includes(token), `api/_utils.js 缺少搜索兼容逻辑: ${token}`);
+  });
+
+  mustHaveOpenSearchApi.forEach((token) => {
+    assert(openSearchApi.includes(token), `api/search_open.js 缺少开放搜索逻辑: ${token}`);
   });
 
   assert(packageJson?.scripts?.check, "package.json 缺少 check 脚本");
