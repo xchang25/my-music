@@ -24,6 +24,9 @@ function run() {
 
   const mustHaveIndex = [
     "id=\"btnSearch\"",
+    "id=\"btnPrevPage\"",
+    "id=\"btnNextPage\"",
+    "id=\"searchPageHint\"",
     "id=\"searchList\"",
     "id=\"recentSearchList\"",
     "id=\"searchLatency\"",
