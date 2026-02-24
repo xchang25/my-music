@@ -72,6 +72,7 @@
             </div>
             <div class="row wrap">
               <button id="btnAutoLyric" class="btn btn-ghost" type="button">歌词滚动：开</button>
+              <button id="btnLyricSize" class="btn btn-ghost" type="button">歌词字号：中</button>
               <button id="btnLyricFullscreen" class="btn btn-ghost" type="button">歌词全屏</button>
             </div>
           </div>
@@ -120,6 +121,18 @@
               <button id="btnSearch" class="btn btn-primary" type="button">开始搜索</button>
             </div>
             <div id="searchMsg" class="tips"></div>
+            <div class="obs-row">
+              <span class="pill">耗时 <b id="searchLatency">-</b></span>
+              <span class="pill">结果 <b id="searchCount">0</b></span>
+              <span class="pill">缓存 <b id="searchCache">-</b></span>
+            </div>
+            <div class="recent-wrap">
+              <div class="row recent-head">
+                <span class="tips">最近搜索</span>
+                <button id="btnClearRecent" class="btn btn-ghost" type="button">清空</button>
+              </div>
+              <div id="recentSearchList" class="recent-chips"></div>
+            </div>
             <div id="searchList" class="list"></div>
           </section>
 
@@ -137,6 +150,11 @@
               <button id="btnLoadToplists" class="btn btn-primary" type="button">加载榜单</button>
             </div>
             <div id="toplistMsg" class="tips"></div>
+            <div class="obs-row">
+              <span class="pill">耗时 <b id="rankLatency">-</b></span>
+              <span class="pill">榜单 <b id="rankCount">0</b></span>
+              <span class="pill">缓存 <b id="rankCache">-</b></span>
+            </div>
 
             <div class="rank-layout">
               <div>
@@ -175,14 +193,32 @@
             <button id="btnFav" class="btn btn-ghost" type="button">收藏当前</button>
           </div>
           <div id="parseMsg" class="tips"></div>
+          <div class="obs-row parse-obs">
+            <span class="pill">解析耗时 <b id="parseLatency">-</b></span>
+            <span class="pill">歌词行数 <b id="parseLyricCount">0</b></span>
+            <span class="pill">缓存 <b id="parseCache">-</b></span>
+          </div>
         </div>
 
         <div class="queue-card">
-          <h4>播放队列</h4>
+          <div class="queue-head">
+            <h4>播放队列</h4>
+            <div class="row queue-tools">
+              <span id="queueCount" class="pill">0</span>
+              <button id="btnQueueClear" class="btn btn-ghost" type="button">清空</button>
+            </div>
+          </div>
           <div id="queueList" class="queue-list"></div>
         </div>
       </aside>
     </div>
+
+    <nav class="mobile-nav glass" id="mobileNav" aria-label="移动端导航">
+      <button class="mobile-nav-btn active" data-view="discover" type="button">发现</button>
+      <button class="mobile-nav-btn" data-view="search" type="button">搜索</button>
+      <button class="mobile-nav-btn" data-view="rank" type="button">榜单</button>
+      <button class="mobile-nav-btn" data-view="library" type="button">我的</button>
+    </nav>
 
     <footer class="player glass">
       <div class="meta">
@@ -194,14 +230,14 @@
         <button id="btnDrawer" class="btn btn-ghost drawer-toggle" type="button">展开</button>
       </div>
 
-      <div class="controls">
-        <div class="row center">
+      <div class="controls" id="playerControls">
+        <div class="row center player-actions">
           <button id="btnPrev" class="btn btn-ghost ctrl-btn" type="button" title="上一首" aria-label="上一首">⏮</button>
           <button id="btnPlayPause" class="btn btn-primary ctrl-btn ctrl-main" type="button" title="播放" aria-label="播放">▶</button>
           <button id="btnNext" class="btn btn-ghost ctrl-btn" type="button" title="下一首" aria-label="下一首">⏭</button>
           <button id="btnMode" class="btn btn-ghost" type="button">顺序</button>
         </div>
-        <div class="progress-row">
+        <div class="progress-row" id="progressRow">
           <span id="timeCurrent">00:00</span>
           <input id="progress" type="range" min="0" max="1000" value="0" />
           <span id="timeTotal">00:00</span>

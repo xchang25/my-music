@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "vercel dev"
+    "dev": "vercel dev",
+    "check:syntax": "node --check app.js && node --check api/search.js && node --check api/parse.js && node --check api/toplists.js && node --check api/toplist.js && node --check api/login.js && node --check api/logout.js && node --check api/me.js && node --check api/health.js && node --check api/_utils.js && node --check api/_security.js",
+    "check:smoke": "node scripts/smoke-check.js",
+    "check": "npm run check:syntax && npm run check:smoke"
   },
   "engines": {
     "node": "20.x"

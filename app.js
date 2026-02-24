@@ -13,6 +13,13 @@ const playModes = [
   { key: "shuffle", label: "随机" }
 ];
 
+const lyricScales = [
+  { label: "小", value: 0.9 },
+  { label: "中", value: 1 },
+  { label: "大", value: 1.14 },
+  { label: "超大", value: 1.28 }
+];
+
 const state = {
   loggedIn: false,
   view: "discover",
@@ -21,6 +28,7 @@ const state = {
   currentSong: null,
   favorites: JSON.parse(localStorage.getItem("favSongs") || "[]"),
   history: JSON.parse(localStorage.getItem("hisSongs") || "[]"),
+  recentSearches: JSON.parse(localStorage.getItem("recentSearches") || "[]"),
   searchResults: [],
   toplists: [],
   activeToplistId: "",
@@ -29,6 +37,7 @@ const state = {
   queueIndex: -1,
   playModeIndex: 0,
   lyricLines: [],
+  lyricTimedIndices: [],
   lyricActiveIndex: -1,
   lyricWordActiveIndex: -1,
   lyricAutoScroll: true,
@@ -37,7 +46,13 @@ const state = {
   isScrubbing: false,
   drawerOpen: false,
   playerIdle: false,
-  playerIdleTimer: null
+  playerIdleTimer: null,
+  progressHover: false,
+  progressHoverSince: 0,
+  searchToken: 0,
+  lyricScaleIndex: Number(localStorage.getItem("lyricScaleIndex") || 1),
+  lastVolume: 0.9,
+  touchStartY: null
 };
 
 const audio = $("playerAudio");
@@ -45,8 +60,10 @@ const audio = $("playerAudio");
 function saveState() {
   localStorage.setItem("favSongs", JSON.stringify(state.favorites));
   localStorage.setItem("hisSongs", JSON.stringify(state.history));
+  localStorage.setItem("recentSearches", JSON.stringify(state.recentSearches));
   localStorage.setItem("theme", state.theme);
   localStorage.setItem("quality", state.quality);
+  localStorage.setItem("lyricScaleIndex", String(state.lyricScaleIndex));
 }
 
 function setText(id, value) {
@@ -56,6 +73,183 @@ function setText(id, value) {
 
 function setMsg(id, value) {
   setText(id, value);
+}
+
+function formatLatency(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  return `${Math.round(ms)}ms`;
+}
+
+function setObs(prefix, { latency = null, count = 0, cache = null } = {}) {
+  const safeCount = String(count || 0);
+  setText(`${prefix}Latency`, formatLatency(latency));
+  setText(`${prefix}Count`, safeCount);
+  setText(`${prefix}LyricCount`, safeCount);
+  setText(`${prefix}Cache`, cache == null ? "-" : cache ? "命中" : "未命中");
+}
+
+function buildTimedLyricIndices(lines) {
+  if (!Array.isArray(lines) || !lines.length) return [];
+  const points = [];
+  lines.forEach((line, idx) => {
+    if (typeof line?.time === "number") {
+      points.push({ idx, time: line.time });
+    }
+  });
+  return points;
+}
+
+function findLyricIndexByTime(time) {
+  const points = state.lyricTimedIndices;
+  if (!points.length) return -1;
+
+  const target = time + 0.05;
+  let left = 0;
+  let right = points.length - 1;
+  let best = -1;
+
+  while (left <= right) {
+    const mid = (left + right) >> 1;
+    if (points[mid].time <= target) {
+      best = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+
+  return best >= 0 ? points[best].idx : -1;
+}
+
+function renderSkeleton(containerId, count = 6) {
+  const container = $(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  const total = Math.max(1, count);
+  for (let index = 0; index < total; index += 1) {
+    const node = document.createElement("div");
+    node.className = "skeleton-card";
+    node.innerHTML = `
+      <div class="sk-line w-60"></div>
+      <div class="sk-line w-40"></div>
+    `;
+    container.appendChild(node);
+  }
+}
+
+function setLyricScale(index) {
+  const safeIndex = Number.isFinite(index) ? Math.max(0, Math.min(lyricScales.length - 1, index)) : 1;
+  state.lyricScaleIndex = safeIndex;
+  const current = lyricScales[state.lyricScaleIndex] || lyricScales[1];
+  document.documentElement.style.setProperty("--lyric-scale", String(current.value));
+  const btn = $("btnLyricSize");
+  if (btn) btn.textContent = `歌词字号：${current.label}`;
+  saveState();
+}
+
+function cycleLyricScale() {
+  const next = (state.lyricScaleIndex + 1) % lyricScales.length;
+  setLyricScale(next);
+}
+
+function normalizeRecentSearches(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((entry) => ({
+      keyword: String(entry?.keyword || "").trim(),
+      platform: String(entry?.platform || "netease").trim()
+    }))
+    .filter((entry) => entry.keyword && ["netease", "qq", "kuwo"].includes(entry.platform));
+}
+
+function renderRecentSearches() {
+  const container = $("recentSearchList");
+  if (!container) return;
+  const clearBtn = $("btnClearRecent");
+
+  const list = normalizeRecentSearches(state.recentSearches);
+  if (!list.length) {
+    if (clearBtn) clearBtn.disabled = true;
+    container.innerHTML = `<div class=\"tips\">暂无历史关键词</div>`;
+    return;
+  }
+
+  if (clearBtn) clearBtn.disabled = false;
+
+  container.innerHTML = "";
+  list.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chip recent-chip";
+    button.textContent = `${item.keyword} · ${platformText[item.platform] || item.platform}`;
+    button.addEventListener("click", () => {
+      const platform = $("searchPlatform");
+      const keyword = $("keyword");
+      const page = $("page");
+      if (platform) platform.value = item.platform;
+      if (keyword) keyword.value = item.keyword;
+      if (page) page.value = "1";
+      setView("search");
+      searchSongs();
+    });
+    container.appendChild(button);
+  });
+}
+
+function addRecentSearch(keyword, platform) {
+  const key = String(keyword || "").trim();
+  if (!key) return;
+
+  const next = normalizeRecentSearches(state.recentSearches).filter(
+    (item) => !(item.keyword === key && item.platform === platform)
+  );
+  next.unshift({ keyword: key, platform });
+  state.recentSearches = next.slice(0, 10);
+  saveState();
+  renderRecentSearches();
+}
+
+function clearRecentSearches() {
+  state.recentSearches = [];
+  saveState();
+  renderRecentSearches();
+}
+
+function dedupeSongs(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : []).filter((song) => {
+    const key = `${song?.platform || "unknown"}|${song?.id || ""}`;
+    if (!song?.id || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildSearchPlatformOrder(selectedPlatform) {
+  const all = ["netease", "qq", "kuwo"];
+  const selected = all.includes(selectedPlatform) ? selectedPlatform : "netease";
+  return [selected, ...all.filter((name) => name !== selected)];
+}
+
+function summarizeSearchAttempts(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  if (!list.length) return "";
+  return list
+    .map((item) => {
+      const platform = platformText[item.platform] || item.platform;
+      if (item.status === 200 && item.code === 0) return `${platform}:${item.count}`;
+      if (item.status === 429) return `${platform}:限流`;
+      if (item.status === 401) return `${platform}:未授权`;
+      if (item.status > 0) return `${platform}:失败`;
+      return `${platform}:异常`;
+    })
+    .join(" / ");
+}
+
+function isEditableTarget(target) {
+  if (!target) return false;
+  const tag = (target.tagName || "").toUpperCase();
+  return target.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 function setButtonLoading(id, pending, loadingText = "处理中...") {
@@ -114,7 +308,11 @@ function schedulePlayerIdle() {
   if (window.innerWidth <= 760) return;
   if (state.playerIdleTimer) clearTimeout(state.playerIdleTimer);
   state.playerIdleTimer = setTimeout(() => {
-    if (!state.isScrubbing) setPlayerIdle(true);
+    if (state.progressHover && Date.now() - state.progressHoverSince > 1800) {
+      state.progressHover = false;
+    }
+    if (!state.isScrubbing && !state.progressHover) setPlayerIdle(true);
+    else schedulePlayerIdle();
   }, 2600);
 }
 
@@ -159,8 +357,23 @@ function setPlayPauseUI(isPlaying) {
   btn.setAttribute("aria-label", isPlaying ? "暂停" : "播放");
 }
 
+function toggleMute() {
+  const volume = $("volume");
+  if (!volume) return;
+
+  if (audio.volume > 0.001) {
+    state.lastVolume = audio.volume;
+    audio.volume = 0;
+    volume.value = "0";
+  } else {
+    const nextVolume = Number(state.lastVolume || 0.9);
+    audio.volume = nextVolume;
+    volume.value = String(nextVolume);
+  }
+}
+
 function animateCoverTransition() {
-  ["coverHero", "coverMini", "coverBar", "lyricFsBg"].forEach((id) => {
+  ["coverMini", "coverBar", "lyricFsBg"].forEach((id) => {
     const node = $(id);
     if (!node) return;
     node.classList.remove("cover-anim");
@@ -210,27 +423,50 @@ function setView(view) {
     const panel = $(`panel-${name}`);
     if (panel) panel.classList.toggle("hidden", name !== view);
   });
-  document.querySelectorAll(".menu-btn").forEach((btn) => {
+  document.querySelectorAll(".menu-btn, .mobile-nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
   });
+
+  if (window.innerWidth <= 1120) {
+    document.querySelector(".main")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 async function api(path, { method = "GET", body } = {}) {
+  const controller = new AbortController();
+  const timeoutMs = 12000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   const options = {
     method,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
+    signal: controller.signal
   };
   if (body !== undefined) options.body = JSON.stringify(body);
 
-  const response = await fetch(path, options);
-  let data = {};
   try {
-    data = await response.json();
-  } catch {
-    data = {};
+    const response = await fetch(path, options);
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+    return { status: response.status, ok: response.ok, data };
+  } catch (error) {
+    const aborted = error?.name === "AbortError";
+    return {
+      status: 0,
+      ok: false,
+      data: {
+        code: -1,
+        message: aborted ? `请求超时（>${timeoutMs / 1000}s）` : `网络异常：${error?.message || "未知错误"}`
+      }
+    };
+  } finally {
+    clearTimeout(timer);
   }
-  return { status: response.status, ok: response.ok, data };
 }
 
 function onUnauthorized() {
@@ -313,7 +549,7 @@ function renderSongList(containerId, songs, { showFav = false, showUnfav = false
 
   container.innerHTML = "";
   if (!songs.length) {
-    container.innerHTML = `<div class=\"empty\">${emptyText}</div>`;
+    container.innerHTML = `<div class=\"empty\"><div class=\"empty-ill\">🎵</div>${emptyText}</div>`;
     return;
   }
 
@@ -381,7 +617,7 @@ function renderToplists() {
   container.innerHTML = "";
 
   if (!state.toplists.length) {
-    container.innerHTML = `<div class=\"empty\">暂无榜单，请点击加载</div>`;
+    container.innerHTML = `<div class=\"empty\"><div class=\"empty-ill\">🏆</div>暂无榜单，请点击加载</div>`;
     return;
   }
 
@@ -409,28 +645,121 @@ function renderQueue() {
   const container = $("queueList");
   if (!container) return;
   container.innerHTML = "";
+  setText("queueCount", String(state.queue.length));
+  const clearBtn = $("btnQueueClear");
+  if (clearBtn) clearBtn.disabled = state.queue.length === 0;
 
   if (!state.queue.length) {
-    container.innerHTML = `<div class=\"empty\">队列为空</div>`;
+    container.innerHTML = `<div class=\"empty\"><div class=\"empty-ill\">📭</div>队列为空</div>`;
     return;
   }
 
   state.queue.forEach((song, idx) => {
     const node = document.createElement("div");
     node.className = `queue-item ${idx === state.queueIndex ? "active" : ""}`;
+    const nowTag = idx === state.queueIndex ? `<span class="queue-now">正在播放</span>` : "";
     node.innerHTML = `
-      <div>
-        <div class="queue-title">${song.name || "未知歌曲"}</div>
-        <div class="queue-sub">${song.artist || "未知歌手"}</div>
+      <div class="queue-main" role="button" tabindex="0" data-act="play" data-idx="${idx}">
+        <div class="queue-index">${String(idx + 1).padStart(2, "0")}</div>
+        <div>
+          <div class="queue-title">${song.name || "未知歌曲"}</div>
+          <div class="queue-sub">${song.artist || "未知歌手"} ${nowTag}</div>
+        </div>
       </div>
-      <button class="btn btn-ghost" data-idx="${idx}" type="button">播放</button>
+      <div class="row queue-item-actions">
+        <button class="btn btn-ghost" data-act="up" data-idx="${idx}" type="button" title="上移" aria-label="上移" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="btn btn-ghost" data-act="down" data-idx="${idx}" type="button" title="下移" aria-label="下移" ${idx === state.queue.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn btn-ghost" data-act="remove" data-idx="${idx}" type="button" title="移除" aria-label="移除">✕</button>
+      </div>
     `;
 
-    node.querySelector("button")?.addEventListener("click", () => {
-      playQueueIndex(idx);
+    node.querySelectorAll("[data-act]")?.forEach((button) => {
+      if (button.classList?.contains("btn")) {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
+      }
+
+      button.addEventListener("click", () => {
+        const act = button.dataset.act;
+        if (act === "play") {
+          playQueueIndex(idx);
+          return;
+        }
+        if (act === "up") {
+          moveQueueItem(idx, idx - 1);
+          return;
+        }
+        if (act === "down") {
+          moveQueueItem(idx, idx + 1);
+          return;
+        }
+        removeQueueIndex(idx);
+      });
+
+      if (button.dataset.act === "play") {
+        button.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            playQueueIndex(idx);
+          }
+        });
+      }
     });
     container.appendChild(node);
   });
+}
+
+function moveQueueItem(fromIndex, toIndex) {
+  if (fromIndex === toIndex) return;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= state.queue.length || toIndex >= state.queue.length) return;
+
+  const [item] = state.queue.splice(fromIndex, 1);
+  state.queue.splice(toIndex, 0, item);
+
+  if (state.queueIndex === fromIndex) {
+    state.queueIndex = toIndex;
+  } else if (fromIndex < state.queueIndex && toIndex >= state.queueIndex) {
+    state.queueIndex -= 1;
+  } else if (fromIndex > state.queueIndex && toIndex <= state.queueIndex) {
+    state.queueIndex += 1;
+  }
+
+  renderQueue();
+}
+
+function removeQueueIndex(idx) {
+  if (idx < 0 || idx >= state.queue.length) return;
+  state.queue.splice(idx, 1);
+  if (state.queueIndex === idx) {
+    state.queueIndex = -1;
+    if (!state.queue.length) {
+      audio.pause();
+      audio.removeAttribute("src");
+      setPlayPauseUI(false);
+    } else {
+      playQueueIndex(Math.min(idx, state.queue.length - 1));
+    }
+  } else if (idx < state.queueIndex) {
+    state.queueIndex -= 1;
+  }
+  renderQueue();
+}
+
+function clearQueue() {
+  state.queue = [];
+  state.queueIndex = -1;
+  state.lyricLines = [];
+  state.lyricTimedIndices = [];
+  state.lyricActiveIndex = -1;
+  state.lyricWordActiveIndex = -1;
+  audio.pause();
+  audio.removeAttribute("src");
+  setPlayPauseUI(false);
+  renderLyrics([]);
+  renderQueue();
+  setObs("parse", { latency: null, count: 0, cache: null });
+  setMsg("parseMsg", "播放队列已清空");
 }
 
 function setNowPlaying(song) {
@@ -441,7 +770,6 @@ function setNowPlaying(song) {
   setText("miniSub", song.artist || "未知歌手");
   setText("lyricFsTitle", song.name || "未知歌曲");
   setText("lyricFsSub", `${song.artist || "未知歌手"} · ${song.album || "单曲"}`);
-  setCover("coverHero", song.cover);
   setCover("coverMini", song.cover);
   setCover("coverBar", song.cover);
   setLyricFsCover(song.cover);
@@ -520,8 +848,9 @@ function parseLyrics(raw) {
 
 function createLyricLineNode(line, idx) {
   const node = document.createElement("div");
-  node.className = `lyric-line ${line.time == null ? "dim" : ""}`;
+  node.className = `lyric-line line-enter ${line.time == null ? "dim" : ""}`;
   node.dataset.index = String(idx);
+  node.style.setProperty("--line-delay", `${Math.min(idx, 40) * 0.02}s`);
 
   if (typeof line.time === "number") {
     node.dataset.time = String(line.time);
@@ -550,7 +879,7 @@ function renderLyrics(lines) {
 
   boxes.forEach((box) => {
     if (!lines.length) {
-      box.innerHTML = `<div class=\"empty\">暂无歌词，请先播放一首歌曲</div>`;
+      box.innerHTML = `<div class=\"empty\"><div class=\"empty-ill\">🎤</div>暂无歌词，请先播放一首歌曲</div>`;
       return;
     }
 
@@ -566,7 +895,13 @@ function setActiveLyric(index, wordIndex = -1) {
   if (!boxes.length) return;
 
   boxes.forEach((box) => {
-    box.querySelector(".lyric-line.active")?.classList.remove("active");
+    box.querySelectorAll(".lyric-line").forEach((lineNode) => {
+      const currentIndex = Number(lineNode.dataset.index || -1);
+      const isActive = index >= 0 && currentIndex === index;
+      lineNode.classList.toggle("active", isActive);
+      lineNode.classList.toggle("past", index >= 0 && currentIndex < index);
+      lineNode.classList.toggle("upcoming", index >= 0 && currentIndex > index);
+    });
     box.querySelectorAll(".lyric-word.active-word").forEach((node) => {
       node.classList.remove("active-word");
     });
@@ -590,14 +925,9 @@ function setActiveLyric(index, wordIndex = -1) {
 
 function updateLyricByTime(time) {
   if (!state.lyricLines.length) return;
-  let idx = -1;
+  const idx = findLyricIndexByTime(time);
   let wordIdx = -1;
-  for (let i = 0; i < state.lyricLines.length; i += 1) {
-    const line = state.lyricLines[i];
-    if (typeof line.time !== "number") continue;
-    if (time >= line.time - 0.05) idx = i;
-    else break;
-  }
+
   if (idx >= 0) {
     const line = state.lyricLines[idx];
     if (Array.isArray(line.words) && line.words.length) {
@@ -617,7 +947,14 @@ function updateLyricByTime(time) {
 
 async function resolveSong(song) {
   const cacheKey = `${song.platform}|${song.id}|${state.quality}`;
-  if (state.resolveCache[cacheKey]) return { ...song, ...state.resolveCache[cacheKey] };
+  if (state.resolveCache[cacheKey]) {
+    return {
+      ...song,
+      ...state.resolveCache[cacheKey],
+      parseCache: true,
+      parseCacheSource: "memory"
+    };
+  }
 
   if (!state.loggedIn) {
     onUnauthorized();
@@ -651,7 +988,9 @@ async function resolveSong(song) {
     cover: parsed.cover || song.cover || "",
     name: parsed?.info?.name || song.name,
     artist: parsed?.info?.artist || song.artist,
-    album: parsed?.info?.album || song.album || ""
+    album: parsed?.info?.album || song.album || "",
+    parseCache: !!data?.localCache,
+    parseCacheSource: data?.localCache ? "remote" : "none"
   };
 
   state.resolveCache[cacheKey] = resolved;
@@ -662,9 +1001,11 @@ async function playQueueIndex(index) {
   if (index < 0 || index >= state.queue.length) return;
   state.queueIndex = index;
   renderQueue();
+  const startedAt = performance.now();
 
   const baseSong = state.queue[index];
   setMsg("parseMsg", `正在解析：${baseSong.name || baseSong.id}`);
+  setObs("parse", { latency: null, count: 0, cache: null });
 
   try {
     const song = await resolveSong(baseSong);
@@ -672,6 +1013,7 @@ async function playQueueIndex(index) {
     setNowPlaying(song);
 
     state.lyricLines = parseLyrics(song.lyrics);
+    state.lyricTimedIndices = buildTimedLyricIndices(state.lyricLines);
     state.lyricActiveIndex = -1;
     state.lyricWordActiveIndex = -1;
     renderLyrics(state.lyricLines);
@@ -683,9 +1025,19 @@ async function playQueueIndex(index) {
 
     addHistory(song);
     setMsg("parseMsg", "播放成功");
+    setObs("parse", {
+      latency: performance.now() - startedAt,
+      count: state.lyricLines.length,
+      cache: !!song.parseCache
+    });
     renderQueue();
   } catch (error) {
     setMsg("parseMsg", `播放失败：${error.message || "未知错误"}`);
+    setObs("parse", {
+      latency: performance.now() - startedAt,
+      count: 0,
+      cache: null
+    });
   }
 }
 
@@ -745,50 +1097,137 @@ function playPrev() {
   if (idx >= 0) playQueueIndex(idx);
 }
 
+async function doSearchRequest(platform, keyword, page, pageSize) {
+  const { status, data } = await api("/api/search", {
+    method: "POST",
+    body: { platform, keyword, page, pageSize }
+  });
+  return {
+    status,
+    data,
+    songs: data?.data?.songs || [],
+    localCache: !!data?.localCache,
+    code: Number(data?.code),
+    message: data?.message || ""
+  };
+}
+
 async function searchSongs() {
   if (!state.loggedIn) {
     setMsg("searchMsg", "请先登录");
     return;
   }
 
-  const platform = $("searchPlatform").value;
+  const selectedPlatform = $("searchPlatform").value;
   const keyword = $("keyword").value.trim();
   const page = Math.max(1, Number($("page").value || 1));
-  const pageSize = Number($("pageSize").value || 20);
+  const pageSize = Math.max(1, Math.min(50, Number($("pageSize").value || 20)));
 
   if (!keyword) {
     setMsg("searchMsg", "请输入关键词");
     return;
   }
 
+  const token = ++state.searchToken;
   setMsg("searchMsg", "搜索中...");
   setButtonLoading("btnSearch", true, "搜索中...");
-  try {
-    const { status, data } = await api("/api/search", {
-      method: "POST",
-      body: { platform, keyword, page, pageSize }
-    });
+  renderSkeleton("searchList", 8);
+  const startedAt = performance.now();
+  const attempts = [];
 
-    if (status === 401) return onUnauthorized();
-    if (status !== 200 || data.code !== 0) {
-      state.searchResults = [];
-      renderSongList("searchList", [], { emptyText: "搜索失败" });
-      setMsg("searchMsg", data.message || `搜索失败（HTTP ${status}）`);
+  try {
+    const order = buildSearchPlatformOrder(selectedPlatform);
+    let finalPlatform = selectedPlatform;
+    let finalSongs = [];
+    let finalCache = null;
+    let finalError = "";
+
+    for (const platform of order) {
+      const result = await doSearchRequest(platform, keyword, page, pageSize);
+      if (token !== state.searchToken) return;
+
+      attempts.push({
+        platform,
+        status: result.status,
+        code: result.code,
+        count: Array.isArray(result.songs) ? result.songs.length : 0
+      });
+
+      if (result.status === 401) return onUnauthorized();
+      if (result.status === 429) {
+        finalError = result.message || "搜索请求过于频繁，请稍后重试";
+        break;
+      }
+
+      if (result.status === 200 && result.code === 0) {
+        const normalized = (result.songs || []).map((song) => ({
+          ...song,
+          platform: song.platform || platform
+        }));
+
+        if (normalized.length) {
+          finalPlatform = platform;
+          finalSongs = normalized;
+          finalCache = result.localCache;
+          break;
+        }
+      } else if (!finalError) {
+        finalError = result.message || `搜索失败（HTTP ${result.status}）`;
+      }
+    }
+
+    state.searchResults = dedupeSongs(finalSongs);
+
+    if (!state.searchResults.length) {
+      renderSongList("searchList", [], { emptyText: "未找到歌曲" });
+      const summary = summarizeSearchAttempts(attempts);
+      if (summary) {
+        setMsg("searchMsg", `${finalError || "三平台均无结果"}（${summary}）`);
+      } else {
+        setMsg("searchMsg", finalError || "未找到歌曲，请更换关键词");
+      }
+      setObs("search", {
+        latency: performance.now() - startedAt,
+        count: 0,
+        cache: finalCache
+      });
       return;
     }
 
-    state.searchResults = (data?.data?.songs || []).map((song) => ({ ...song, platform: song.platform || platform }));
+    addRecentSearch(keyword, finalPlatform);
+
     renderSongList("searchList", state.searchResults, {
       showFav: true,
       emptyText: "未找到歌曲"
     });
-    setMsg("searchMsg", `搜索完成：${state.searchResults.length} 条`);
+
+    if (state.searchResults.length && finalPlatform !== selectedPlatform) {
+      setMsg(
+        "searchMsg",
+        `已自动切换到 ${platformText[finalPlatform] || finalPlatform}：${state.searchResults.length} 条（${summarizeSearchAttempts(attempts)}）`
+      );
+    } else {
+      setMsg("searchMsg", `搜索完成：${state.searchResults.length} 条（${summarizeSearchAttempts(attempts)}）`);
+    }
+    setObs("search", {
+      latency: performance.now() - startedAt,
+      count: state.searchResults.length,
+      cache: finalCache
+    });
   } catch (error) {
+    if (token !== state.searchToken) return;
     state.searchResults = [];
     renderSongList("searchList", [], { emptyText: "搜索异常" });
     setMsg("searchMsg", `搜索异常：${error?.message || "网络错误"}`);
+    setObs("search", {
+      latency: performance.now() - startedAt,
+      count: 0,
+      cache: null
+    });
   } finally {
-    setButtonLoading("btnSearch", false);
+    if (token === state.searchToken) {
+      setButtonLoading("btnSearch", false);
+    }
   }
 }
 
@@ -800,6 +1239,9 @@ async function loadToplists() {
 
   const platform = $("rankPlatform").value;
   setMsg("toplistMsg", "加载榜单中...");
+  renderSkeleton("toplistList", 6);
+  renderSkeleton("topSongList", 8);
+  const startedAt = performance.now();
 
   setButtonLoading("btnLoadToplists", true, "加载中...");
   try {
@@ -813,6 +1255,11 @@ async function loadToplists() {
       state.toplists = [];
       renderToplists();
       setMsg("toplistMsg", data.message || "加载失败");
+      setObs("rank", {
+        latency: performance.now() - startedAt,
+        count: 0,
+        cache: !!data?.localCache
+      });
       return;
     }
 
@@ -820,12 +1267,22 @@ async function loadToplists() {
     state.activeToplistId = "";
     renderToplists();
     setMsg("toplistMsg", `已加载 ${state.toplists.length} 个榜单`);
+    setObs("rank", {
+      latency: performance.now() - startedAt,
+      count: state.toplists.length,
+      cache: !!data?.localCache
+    });
 
     if (state.toplists.length) {
       loadToplistSongs(state.toplists[0]);
     }
   } catch (error) {
     setMsg("toplistMsg", `加载异常：${error?.message || "网络错误"}`);
+    setObs("rank", {
+      latency: performance.now() - startedAt,
+      count: 0,
+      cache: null
+    });
   } finally {
     setButtonLoading("btnLoadToplists", false);
   }
@@ -859,7 +1316,7 @@ async function loadToplistSongs(top) {
 }
 
 function bindMenu() {
-  document.querySelectorAll(".menu-btn").forEach((btn) => {
+  document.querySelectorAll(".menu-btn, .mobile-nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       setView(btn.dataset.view);
     });
@@ -895,6 +1352,7 @@ function bindTopActions() {
   $("btnLogin").addEventListener("click", doLogin);
   $("btnLogout").addEventListener("click", doLogout);
   $("btnSearch").addEventListener("click", searchSongs);
+  $("btnClearRecent")?.addEventListener("click", clearRecentSearches);
   $("btnLoadToplists").addEventListener("click", loadToplists);
 
   $("qualityGlobal").addEventListener("change", (event) => {
@@ -914,6 +1372,8 @@ function bindTopActions() {
   $("btnLyricFullscreen").addEventListener("click", () => {
     setLyricFullscreen(!state.lyricFullscreen);
   });
+
+  $("btnLyricSize")?.addEventListener("click", cycleLyricScale);
 
   $("btnLyricFsClose").addEventListener("click", () => {
     setLyricFullscreen(false);
@@ -937,6 +1397,8 @@ function bindPlayerActions() {
   const volume = $("volume");
   const drawer = $("btnDrawer");
   const player = document.querySelector(".player");
+  const progressRow = $("progressRow");
+  const controls = $("playerControls");
 
   progress.max = "10000";
 
@@ -945,6 +1407,53 @@ function bindPlayerActions() {
   player?.addEventListener("mouseleave", schedulePlayerIdle);
   player?.addEventListener("pointerdown", wakePlayer);
   player?.addEventListener("focusin", wakePlayer);
+  player?.addEventListener(
+    "touchstart",
+    (event) => {
+      state.touchStartY = event.touches?.[0]?.clientY ?? null;
+    },
+    { passive: true }
+  );
+  player?.addEventListener(
+    "touchend",
+    (event) => {
+      if (window.innerWidth > 760) return;
+      if (state.touchStartY == null) return;
+      const endY = event.changedTouches?.[0]?.clientY ?? state.touchStartY;
+      const delta = endY - state.touchStartY;
+      state.touchStartY = null;
+      if (Math.abs(delta) < 36) return;
+      if (delta < 0) setDrawerOpen(true);
+      else setDrawerOpen(false);
+    },
+    { passive: true }
+  );
+  player?.addEventListener(
+    "touchcancel",
+    () => {
+      state.touchStartY = null;
+    },
+    { passive: true }
+  );
+
+  controls?.addEventListener("mouseenter", wakePlayer);
+  controls?.addEventListener("mousemove", wakePlayer);
+
+  progressRow?.addEventListener("mouseenter", () => {
+    state.progressHover = true;
+    state.progressHoverSince = Date.now();
+    wakePlayer();
+  });
+  progressRow?.addEventListener("mousemove", () => {
+    state.progressHover = true;
+    state.progressHoverSince = Date.now();
+    wakePlayer();
+  });
+  progressRow?.addEventListener("mouseleave", () => {
+    state.progressHover = false;
+    state.progressHoverSince = 0;
+    schedulePlayerIdle();
+  });
 
   $("btnPlayPause").addEventListener("click", () => {
     wakePlayer();
@@ -981,6 +1490,8 @@ function bindPlayerActions() {
     setPlayPauseUI(true);
   });
 
+  $("btnQueueClear")?.addEventListener("click", clearQueue);
+
   audio.addEventListener("pause", () => {
     setPlayPauseUI(false);
   });
@@ -1015,11 +1526,15 @@ function bindPlayerActions() {
   progress.addEventListener("pointerdown", () => {
     wakePlayer();
     state.isScrubbing = true;
+    state.progressHover = true;
+    state.progressHoverSince = Date.now();
   });
 
   progress.addEventListener("pointerup", () => {
     seekToProgress();
     state.isScrubbing = false;
+    state.progressHover = false;
+    state.progressHoverSince = 0;
     schedulePlayerIdle();
   });
 
@@ -1040,6 +1555,8 @@ function bindPlayerActions() {
     if (state.isScrubbing) {
       seekToProgress();
       state.isScrubbing = false;
+      state.progressHover = false;
+      state.progressHoverSince = 0;
       schedulePlayerIdle();
     }
   });
@@ -1047,14 +1564,51 @@ function bindPlayerActions() {
   volume.addEventListener("input", () => {
     wakePlayer();
     audio.volume = Number(volume.value);
+    if (audio.volume > 0) state.lastVolume = audio.volume;
   });
   audio.volume = Number(volume.value);
+  state.lastVolume = audio.volume || 0.9;
+
+  window.addEventListener("keydown", (event) => {
+    if (isEditableTarget(event.target)) return;
+
+    if (event.code === "Space") {
+      event.preventDefault();
+      $("btnPlayPause")?.click();
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      if (duration <= 0) return;
+      event.preventDefault();
+      audio.currentTime = Math.min(duration, audio.currentTime + 5);
+      wakePlayer();
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      if (duration <= 0) return;
+      event.preventDefault();
+      audio.currentTime = Math.max(0, audio.currentTime - 5);
+      wakePlayer();
+      return;
+    }
+
+    if (event.key.toLowerCase() === "m") {
+      event.preventDefault();
+      toggleMute();
+      wakePlayer();
+    }
+  });
 
   window.addEventListener("resize", () => {
     if (window.innerWidth > 760) {
       setDrawerOpen(false);
       schedulePlayerIdle();
     } else {
+      state.progressHover = false;
       setPlayerIdle(false);
     }
   });
@@ -1068,6 +1622,10 @@ function initialize() {
   $("btnMode").textContent = getMode().label;
   setPlayPauseUI(false);
   setLyricFsCover("");
+  setLyricScale(state.lyricScaleIndex);
+  setObs("search", { latency: null, count: 0, cache: null });
+  setObs("rank", { latency: null, count: 0, cache: null });
+  setObs("parse", { latency: null, count: 0, cache: null });
   $("qualityGlobal").value = state.quality;
   setDrawerOpen(false);
   setLyricFullscreen(false);
@@ -1082,6 +1640,7 @@ function initialize() {
   renderToplists();
   renderTopSongs();
   renderQueue();
+  renderRecentSearches();
   renderLyrics([]);
   checkMe();
 }
