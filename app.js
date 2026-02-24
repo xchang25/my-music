@@ -3,7 +3,8 @@ const $ = (id) => document.getElementById(id);
 const platformText = {
   netease: "网易云",
   qq: "QQ音乐",
-  kuwo: "酷我"
+  kuwo: "酷我",
+  itunes: "iTunes"
 };
 
 const playModes = [
@@ -963,6 +964,16 @@ function updateLyricByTime(time) {
 }
 
 async function resolveSong(song) {
+  if (song?.url || song?.directUrl) {
+    return {
+      ...song,
+      url: song.url || song.directUrl,
+      lyrics: song.lyrics || "",
+      parseCache: true,
+      parseCacheSource: "direct"
+    };
+  }
+
   const cacheKey = `${song.platform}|${song.id}|${state.quality}`;
   if (state.resolveCache[cacheKey]) {
     return {
@@ -1129,6 +1140,21 @@ async function doSearchRequest(platform, keyword, page, pageSize) {
   };
 }
 
+async function doOpenSearchRequest(keyword, pageSize) {
+  const { status, data } = await api("/api/search_open", {
+    method: "POST",
+    body: { keyword, pageSize }
+  });
+  return {
+    status,
+    data,
+    songs: data?.data?.songs || [],
+    localCache: !!data?.localCache,
+    code: Number(data?.code),
+    message: data?.message || ""
+  };
+}
+
 async function searchSongs() {
   if (!state.loggedIn) {
     setMsg("searchMsg", "请先登录");
@@ -1204,6 +1230,46 @@ async function searchSongs() {
     state.searchResults = dedupeSongs(finalSongs);
 
     if (!state.searchResults.length) {
+      if (!/频繁|未授权/.test(finalError)) {
+        const open = await doOpenSearchRequest(keyword, pageSize);
+        if (token !== state.searchToken) return;
+
+        attempts.push({
+          platform: "itunes",
+          status: open.status,
+          code: open.code,
+          count: Array.isArray(open.songs) ? open.songs.length : 0,
+          page: 1
+        });
+
+        if (open.status === 200 && open.code === 0 && (open.songs || []).length) {
+          state.searchResults = dedupeSongs(
+            (open.songs || []).map((song) => ({
+              ...song,
+              platform: song.platform || "itunes"
+            }))
+          );
+          finalCache = open.localCache;
+          finalPlatform = "itunes";
+
+          addRecentSearch(keyword, finalPlatform);
+          renderSongList("searchList", state.searchResults, {
+            showFav: true,
+            emptyText: "未找到歌曲"
+          });
+          setMsg(
+            "searchMsg",
+            `三平台无结果，已切到开放搜索（iTunes 试听）：${state.searchResults.length} 条（${summarizeSearchAttempts(attempts)}）`
+          );
+          setObs("search", {
+            latency: performance.now() - startedAt,
+            count: state.searchResults.length,
+            cache: finalCache
+          });
+          return;
+        }
+      }
+
       renderSongList("searchList", [], { emptyText: "未找到歌曲" });
       if (!finalError) {
         finalError = "暂无可用歌曲，建议尝试“歌手+歌名”或更换平台";
