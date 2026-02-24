@@ -77,7 +77,16 @@ function run() {
   const mustHaveLoginApi = ["MAX_FAIL_COUNT", "LOCK_MS", "登录失败次数过多"];
   const mustHaveApiUtils = ["data.result.songs", "songInfo", "albumCover"];
   const mustHaveOpenSearchApi = ["itunes.apple.com/search", "directUrl", "search-open:"];
-  const mustHaveSearchApi = ["DoSearchForQQMusicLite", "u.y.qq.com/cgi-bin/musicu.fcg", "qq_direct", "item_song"];
+  const mustHaveSearchApi = [
+    "DoSearchForQQMusicLite",
+    "u.y.qq.com/cgi-bin/musicu.fcg",
+    "qq_direct",
+    "item_song",
+    "netease_direct",
+    "kuwo_direct",
+    "music.163.com/api/search/get",
+    "search.kuwo.cn/r.s"
+  ];
 
   mustHaveIndex.forEach((token) => {
     assert(indexHtml.includes(token), `index.html 缺少关键标记: ${token}`);
