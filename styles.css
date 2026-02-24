@@ -1282,9 +1282,15 @@ body.light .lyric-word.active-word {
 
   .player.idle .player-actions,
   .player.idle .volume {
-    opacity: 0.18;
+    opacity: 0.22;
     pointer-events: none;
-    transform: scale(0.96) translateY(2px);
+    transform: scale(0.98) translateY(2px);
+  }
+
+  .player.idle .player-actions {
+    opacity: 0.62;
+    pointer-events: auto;
+    transform: none;
   }
 
   .player.idle .progress-row {
@@ -1450,9 +1456,15 @@ body.light .lyric-word.active-word {
     transform: translateY(0);
   }
 
-  .player .player-actions,
+  .player .player-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    max-height: none;
+  }
+
   .player .volume {
-    opacity: 0.12;
+    opacity: 0;
     pointer-events: none;
     transform: translateY(8px);
     max-height: 0;

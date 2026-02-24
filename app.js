@@ -262,7 +262,10 @@ function summarizeSearchAttempts(attempts) {
     .map((item) => {
       const platform = platformText[item.platform] || item.platform;
       const pageText = Number.isFinite(item.page) ? `P${item.page}` : "";
-      if (item.status === 200 && item.code === 0) return `${platform}${pageText}:${item.count}`;
+      if (item.status === 200 && item.code === 0) {
+        const upstreamText = Number.isFinite(item.upStatus) ? `(U${item.upStatus})` : "";
+        return `${platform}${pageText}:${item.count}${upstreamText}`;
+      }
       if (item.status === 429) return `${platform}:限流`;
       if (item.status === 401) return `${platform}:未授权`;
       if (item.status > 0) return `${platform}:失败`;
@@ -1153,12 +1156,13 @@ function playPrev() {
 async function doSearchRequest(platform, keyword, page, pageSize) {
   const { status, data } = await api("/api/search", {
     method: "POST",
-    body: { platform, keyword, page, pageSize }
+    body: { platform, keyword, page, pageSize, debug: true }
   });
   return {
     status,
     data,
     songs: data?.data?.songs || [],
+    upstreamStatus: Number(data?.data?.upstream?.status),
     localCache: !!data?.localCache,
     code: Number(data?.code),
     message: data?.message || ""
@@ -1190,7 +1194,7 @@ async function searchSongs() {
   const selectedPlatform = $("searchPlatform").value;
   const keyword = $("keyword").value.trim();
   const page = Math.max(1, Number($("page").value || 1));
-  const pageSize = Math.max(1, Math.min(50, Number($("pageSize").value || 20)));
+  const pageSize = Math.max(1, Math.min(100, Number($("pageSize").value || 20)));
 
   if (!keyword) {
     setMsg("searchMsg", "请输入关键词");
@@ -1226,6 +1230,7 @@ async function searchSongs() {
           status: result.status,
           code: result.code,
           count: Array.isArray(result.songs) ? result.songs.length : 0,
+          upStatus: result.upstreamStatus,
           page: pageValue
         });
 
