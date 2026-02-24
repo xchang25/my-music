@@ -17,7 +17,7 @@ module.exports = async function handler(req, res) {
     const body = await readBody(req);
     const keyword = (body.keyword || "").toString().trim();
     const page = Math.max(1, toInt(body.page, 1));
-    const pageSize = Math.min(50, Math.max(1, toInt(body.pageSize, 20)));
+    const pageSize = Math.min(100, Math.max(1, toInt(body.pageSize, 20)));
 
     if (!keyword) return json(res, 400, { code: -1, message: "keyword 不能为空" });
 
