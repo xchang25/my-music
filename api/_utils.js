@@ -140,6 +140,65 @@ function pickFirstArray(obj, paths) {
   return [];
 }
 
+function hasSongLikeFields(item) {
+  if (!item || typeof item !== "object") return false;
+  const keys = Object.keys(item);
+  return keys.some((key) =>
+    [
+      "id",
+      "songid",
+      "songId",
+      "songID",
+      "songmid",
+      "mid",
+      "rid",
+      "musicrid",
+      "hash",
+      "name",
+      "songname",
+      "songName",
+      "songTitle",
+      "title",
+      "songInfo",
+      "musicInfo"
+    ].includes(key)
+  );
+}
+
+function findSongArrayDeep(root, maxDepth = 5) {
+  const queue = [{ node: root, depth: 0 }];
+  const seen = new Set();
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || current.node == null) continue;
+    const { node, depth } = current;
+
+    if (typeof node === "object") {
+      if (seen.has(node)) continue;
+      seen.add(node);
+    }
+
+    if (Array.isArray(node)) {
+      const sample = node.find((item) => item && typeof item === "object");
+      if (sample && hasSongLikeFields(sample)) return node;
+      if (depth < maxDepth) {
+        node.slice(0, 40).forEach((item) => {
+          if (item && typeof item === "object") queue.push({ node: item, depth: depth + 1 });
+        });
+      }
+      continue;
+    }
+
+    if (depth >= maxDepth || typeof node !== "object") continue;
+    Object.values(node).forEach((value) => {
+      if (value && typeof value === "object") queue.push({ node: value, depth: depth + 1 });
+    });
+  }
+
+  return [];
+}
+
 function normalizeSongs(raw) {
   const arr = Array.isArray(raw)
     ? raw
@@ -161,9 +220,11 @@ function normalizeSongs(raw) {
         "data"
       ]);
 
-  if (!Array.isArray(arr)) return [];
+  const source = Array.isArray(arr) && arr.length ? arr : findSongArrayDeep(raw);
 
-  return arr
+  if (!Array.isArray(source)) return [];
+
+  return source
     .map((item) => {
       const core = item?.songInfo || item?.song || item?.musicInfo || item;
       let id =
@@ -171,7 +232,11 @@ function normalizeSongs(raw) {
         core.songid ||
         core.songId ||
         core.songID ||
+        core.song_id ||
         core.songmid ||
+        core.media_mid ||
+        core.musicId ||
+        core.trackId ||
         core.mid ||
         core.rid ||
         core.musicrid ||
@@ -188,6 +253,7 @@ function normalizeSongs(raw) {
         core.name ||
         core.songname ||
         core.songName ||
+        core.song_name ||
         core.songTitle ||
         core.SONGNAME ||
         core.title ||
@@ -198,14 +264,20 @@ function normalizeSongs(raw) {
         ? core.singer.map((a) => (typeof a === "string" ? a : a.name || a.title || "")).filter(Boolean).join("/")
         : "";
 
+      const artistsFromList = Array.isArray(core.artistList)
+        ? core.artistList.map((a) => (typeof a === "string" ? a : a.name || a.title || "")).filter(Boolean).join("/")
+        : "";
+
       const artist =
         core.artist ||
         core.singer ||
+        core.artistName ||
         core.singername ||
         core.artistname ||
         core.ARTIST ||
         core.author ||
         singerArray ||
+        artistsFromList ||
         (Array.isArray(core.artists) ? core.artists.map((a) => a.name || a).join("/") : "");
       const album = core.album || core.albumname || core.albumName || core.ALBUM || "";
       const cover =
