@@ -45,8 +45,12 @@ module.exports = async function handler(req, res) {
     const { fromCache, value } = await withCache(cache, key, TTL, async () => {
       const normalizeQQDirectSongs = (raw) => {
         const list =
+          raw?.req?.data?.body?.item_song ||
+          raw?.req?.data?.body?.song?.item_song ||
           raw?.req?.data?.body?.song?.list ||
           raw?.req?.data?.body?.song?.itemlist ||
+          raw?.req_1?.data?.body?.item_song ||
+          raw?.req_1?.data?.body?.song?.item_song ||
           raw?.req_1?.data?.body?.song?.list ||
           [];
 
@@ -55,7 +59,7 @@ module.exports = async function handler(req, res) {
         return list
           .map((item) => {
             const id = item?.mid || item?.songmid || item?.id || "";
-            const name = item?.name || item?.songname || item?.title || "";
+            const name = item?.name || item?.songname || item?.title || item?.song_name || "";
             const singerList = Array.isArray(item?.singer) ? item.singer : [];
             const artist = singerList
               .map((entry) => (typeof entry === "string" ? entry : entry?.name || entry?.title || ""))
