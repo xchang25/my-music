@@ -237,7 +237,8 @@ function summarizeSearchAttempts(attempts) {
   return list
     .map((item) => {
       const platform = platformText[item.platform] || item.platform;
-      if (item.status === 200 && item.code === 0) return `${platform}:${item.count}`;
+      const pageText = Number.isFinite(item.page) ? `P${item.page}` : "";
+      if (item.status === 200 && item.code === 0) return `${platform}${pageText}:${item.count}`;
       if (item.status === 429) return `${platform}:限流`;
       if (item.status === 401) return `${platform}:未授权`;
       if (item.status > 0) return `${platform}:失败`;
@@ -864,10 +865,23 @@ function createLyricLineNode(line, idx) {
   }
 
   if (Array.isArray(line.words) && line.words.length > 0) {
-    node.innerHTML = line.words
-      .map((word, widx) => `<span class="lyric-word" data-widx="${widx}">${escapeHtml(word.text)}</span>`)
+    const html = line.words
+      .map((word, widx) => {
+        const text = String(word?.text ?? "");
+        if (!text) return "";
+        return `<span class="lyric-word" data-widx="${widx}">${escapeHtml(text)}</span>`;
+      })
       .join("");
+    if (html) {
+      node.innerHTML = html;
+    } else {
+      node.textContent = line.text || "♪";
+    }
   } else {
+    node.textContent = line.text || "♪";
+  }
+
+  if (!node.textContent || !node.textContent.trim()) {
     node.textContent = line.text || "♪";
   }
   return node;
@@ -925,7 +939,10 @@ function setActiveLyric(index, wordIndex = -1) {
 
 function updateLyricByTime(time) {
   if (!state.lyricLines.length) return;
-  const idx = findLyricIndexByTime(time);
+  let idx = findLyricIndexByTime(time);
+  if (idx < 0 && state.lyricTimedIndices.length) {
+    idx = state.lyricTimedIndices[0].idx;
+  }
   let wordIdx = -1;
 
   if (idx >= 0) {
@@ -1137,42 +1154,50 @@ async function searchSongs() {
 
   try {
     const order = buildSearchPlatformOrder(selectedPlatform);
+    const pageCandidates = Array.from(new Set([page, Math.max(0, page - 1), 0]));
     let finalPlatform = selectedPlatform;
     let finalSongs = [];
     let finalCache = null;
     let finalError = "";
 
     for (const platform of order) {
-      const result = await doSearchRequest(platform, keyword, page, pageSize);
-      if (token !== state.searchToken) return;
+      for (const pageValue of pageCandidates) {
+        const result = await doSearchRequest(platform, keyword, pageValue, pageSize);
+        if (token !== state.searchToken) return;
 
-      attempts.push({
-        platform,
-        status: result.status,
-        code: result.code,
-        count: Array.isArray(result.songs) ? result.songs.length : 0
-      });
+        attempts.push({
+          platform,
+          status: result.status,
+          code: result.code,
+          count: Array.isArray(result.songs) ? result.songs.length : 0,
+          page: pageValue
+        });
 
-      if (result.status === 401) return onUnauthorized();
-      if (result.status === 429) {
-        finalError = result.message || "搜索请求过于频繁，请稍后重试";
-        break;
-      }
-
-      if (result.status === 200 && result.code === 0) {
-        const normalized = (result.songs || []).map((song) => ({
-          ...song,
-          platform: song.platform || platform
-        }));
-
-        if (normalized.length) {
-          finalPlatform = platform;
-          finalSongs = normalized;
-          finalCache = result.localCache;
+        if (result.status === 401) return onUnauthorized();
+        if (result.status === 429) {
+          finalError = result.message || "搜索请求过于频繁，请稍后重试";
           break;
         }
-      } else if (!finalError) {
-        finalError = result.message || `搜索失败（HTTP ${result.status}）`;
+
+        if (result.status === 200 && result.code === 0) {
+          const normalized = (result.songs || []).map((song) => ({
+            ...song,
+            platform: song.platform || platform
+          }));
+
+          if (normalized.length) {
+            finalPlatform = platform;
+            finalSongs = normalized;
+            finalCache = result.localCache;
+            break;
+          }
+        } else if (!finalError) {
+          finalError = result.message || `搜索失败（HTTP ${result.status}）`;
+        }
+      }
+
+      if (finalSongs.length || /频繁/.test(finalError)) {
+        break;
       }
     }
 
@@ -1180,6 +1205,9 @@ async function searchSongs() {
 
     if (!state.searchResults.length) {
       renderSongList("searchList", [], { emptyText: "未找到歌曲" });
+      if (!finalError) {
+        finalError = "暂无可用歌曲，建议尝试“歌手+歌名”或更换平台";
+      }
       const summary = summarizeSearchAttempts(attempts);
       if (summary) {
         setMsg("searchMsg", `${finalError || "三平台均无结果"}（${summary}）`);

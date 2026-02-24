@@ -111,6 +111,10 @@ select:focus-visible {
   gap: 12px;
 }
 
+.right {
+  overflow: hidden;
+}
+
 .logo-wrap {
   display: flex;
   gap: 10px;
@@ -576,6 +580,7 @@ h4 {
   display: grid;
   gap: 8px;
   padding-right: 2px;
+  min-height: 0;
 }
 
 .list,
@@ -621,6 +626,12 @@ h4 {
 #toplistList,
 #queueList {
   max-height: 280px;
+}
+
+#queueList {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .rank-item {
@@ -797,6 +808,13 @@ h4 {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
   padding: 12px;
+}
+
+.queue-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .cover-sm {
@@ -1131,8 +1149,9 @@ body.light .lyric-word.active-word {
   position: fixed;
   left: 14px;
   right: 14px;
-  bottom: 12px;
+  bottom: max(10px, env(safe-area-inset-bottom));
   padding: 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: 1fr 1.3fr 0.6fr;
   align-items: center;
@@ -1241,7 +1260,7 @@ body.light .lyric-word.active-word {
   }
 
   .player.idle {
-    max-height: 62px;
+    max-height: 72px;
     padding-top: 6px;
     padding-bottom: 6px;
     border-color: rgba(142, 161, 255, 0.22);
@@ -1296,6 +1315,7 @@ body.light .lyric-word.active-word {
   .right {
     position: static;
     height: auto;
+    overflow: visible;
   }
 
   .player {
@@ -1398,19 +1418,29 @@ body.light .lyric-word.active-word {
   }
 
   .player {
-    max-height: 74px;
+    max-height: 96px;
     overflow: hidden;
     transition: max-height 0.25s ease;
   }
 
   .player .controls,
   .player .volume {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(8px);
     transition:
       opacity 0.2s ease,
       transform 0.2s ease;
+  }
+
+  .player .controls {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .player .player-actions,
+  .player .volume {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
   }
 
   .player.open {
@@ -1418,6 +1448,7 @@ body.light .lyric-word.active-word {
   }
 
   .player.open .controls,
+  .player.open .player-actions,
   .player.open .volume {
     opacity: 1;
     pointer-events: auto;
