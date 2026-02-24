@@ -530,6 +530,20 @@ input::placeholder {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.search-pager {
+  margin-top: 6px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+#searchPageHint {
+  margin: 0;
+  min-height: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 body.light .parse-obs .pill {
   background: rgba(12, 24, 44, 0.06);
 }
@@ -1259,7 +1273,7 @@ body.light .lyric-word.active-word {
   }
 
   .player.idle {
-    max-height: 72px;
+    max-height: none;
     padding-top: 6px;
     padding-bottom: 6px;
     border-color: rgba(142, 161, 255, 0.22);
@@ -1418,9 +1432,9 @@ body.light .lyric-word.active-word {
   }
 
   .player {
-    max-height: 116px;
-    overflow: hidden;
-    transition: max-height 0.25s ease;
+    max-height: none;
+    overflow: visible;
+    transition: padding 0.2s ease;
   }
 
   .player .controls,
@@ -1441,10 +1455,17 @@ body.light .lyric-word.active-word {
     opacity: 0.12;
     pointer-events: none;
     transform: translateY(8px);
+    max-height: 0;
+    overflow: hidden;
+  }
+
+  .player .progress-row {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .player.open {
-    max-height: 340px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
 
   .player.open .controls,
@@ -1453,6 +1474,7 @@ body.light .lyric-word.active-word {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
+    max-height: 72px;
   }
 
   .lyric-fullscreen {

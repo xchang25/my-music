@@ -51,6 +51,8 @@ const state = {
   progressHover: false,
   progressHoverSince: 0,
   searchToken: 0,
+  searchHasNext: false,
+  searchSource: "none",
   lyricScaleIndex: Number(localStorage.getItem("lyricScaleIndex") || 1),
   lastVolume: 0.9,
   touchStartY: null
@@ -214,6 +216,27 @@ function clearRecentSearches() {
   state.recentSearches = [];
   saveState();
   renderRecentSearches();
+}
+
+function getSearchPage() {
+  const pageNode = $("page");
+  return Math.max(1, Number(pageNode?.value || 1));
+}
+
+function updateSearchPager() {
+  const page = getSearchPage();
+  const prev = $("btnPrevPage");
+  const next = $("btnNextPage");
+  const hint = $("searchPageHint");
+
+  if (prev) prev.disabled = !state.loggedIn || page <= 1;
+  if (next) next.disabled = !state.loggedIn || !state.searchHasNext;
+
+  if (hint) {
+    const sourceText =
+      state.searchSource === "open" ? "开放搜索" : state.searchSource === "platform" ? "三平台搜索" : "未搜索";
+    hint.textContent = `第 ${page} 页 · ${sourceText}`;
+  }
 }
 
 function dedupeSongs(list) {
@@ -417,6 +440,8 @@ function setAuthUI() {
     const btn = $(id);
     if (btn) btn.disabled = !state.loggedIn;
   });
+
+  updateSearchPager();
 }
 
 function setView(view) {
@@ -1140,15 +1165,16 @@ async function doSearchRequest(platform, keyword, page, pageSize) {
   };
 }
 
-async function doOpenSearchRequest(keyword, pageSize) {
+async function doOpenSearchRequest(keyword, page, pageSize) {
   const { status, data } = await api("/api/search_open", {
     method: "POST",
-    body: { keyword, pageSize }
+    body: { keyword, page, pageSize }
   });
   return {
     status,
     data,
     songs: data?.data?.songs || [],
+    hasMore: !!data?.data?.hasMore,
     localCache: !!data?.localCache,
     code: Number(data?.code),
     message: data?.message || ""
@@ -1172,6 +1198,9 @@ async function searchSongs() {
   }
 
   const token = ++state.searchToken;
+  state.searchHasNext = false;
+  state.searchSource = "none";
+  updateSearchPager();
   setMsg("searchMsg", "搜索中...");
   setButtonLoading("btnSearch", true, "搜索中...");
   renderSkeleton("searchList", 8);
@@ -1185,6 +1214,7 @@ async function searchSongs() {
     let finalSongs = [];
     let finalCache = null;
     let finalError = "";
+    let finalHasMore = false;
 
     for (const platform of order) {
       for (const pageValue of pageCandidates) {
@@ -1215,6 +1245,7 @@ async function searchSongs() {
             finalPlatform = platform;
             finalSongs = normalized;
             finalCache = result.localCache;
+            finalHasMore = normalized.length >= pageSize;
             break;
           }
         } else if (!finalError) {
@@ -1228,10 +1259,12 @@ async function searchSongs() {
     }
 
     state.searchResults = dedupeSongs(finalSongs);
+    state.searchHasNext = finalHasMore;
+    state.searchSource = state.searchResults.length ? "platform" : "none";
 
     if (!state.searchResults.length) {
       if (!/频繁|未授权/.test(finalError)) {
-        const open = await doOpenSearchRequest(keyword, pageSize);
+        const open = await doOpenSearchRequest(keyword, page, pageSize);
         if (token !== state.searchToken) return;
 
         attempts.push({
@@ -1249,6 +1282,8 @@ async function searchSongs() {
               platform: song.platform || "itunes"
             }))
           );
+          state.searchHasNext = !!open.hasMore;
+          state.searchSource = "open";
           finalCache = open.localCache;
           finalPlatform = "itunes";
 
@@ -1266,11 +1301,14 @@ async function searchSongs() {
             count: state.searchResults.length,
             cache: finalCache
           });
+          updateSearchPager();
           return;
         }
       }
 
       renderSongList("searchList", [], { emptyText: "未找到歌曲" });
+      state.searchHasNext = false;
+      state.searchSource = "none";
       if (!finalError) {
         finalError = "暂无可用歌曲，建议尝试“歌手+歌名”或更换平台";
       }
@@ -1285,6 +1323,7 @@ async function searchSongs() {
         count: 0,
         cache: finalCache
       });
+      updateSearchPager();
       return;
     }
 
@@ -1308,9 +1347,12 @@ async function searchSongs() {
       count: state.searchResults.length,
       cache: finalCache
     });
+    updateSearchPager();
   } catch (error) {
     if (token !== state.searchToken) return;
     state.searchResults = [];
+    state.searchHasNext = false;
+    state.searchSource = "none";
     renderSongList("searchList", [], { emptyText: "搜索异常" });
     setMsg("searchMsg", `搜索异常：${error?.message || "网络错误"}`);
     setObs("search", {
@@ -1318,6 +1360,7 @@ async function searchSongs() {
       count: 0,
       cache: null
     });
+    updateSearchPager();
   } finally {
     if (token === state.searchToken) {
       setButtonLoading("btnSearch", false);
@@ -1457,6 +1500,29 @@ function bindTopActions() {
 
   $("keyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") searchSongs();
+  });
+
+  $("btnPrevPage")?.addEventListener("click", () => {
+    const pageNode = $("page");
+    if (!pageNode) return;
+    const value = Math.max(1, Number(pageNode.value || 1) - 1);
+    pageNode.value = String(value);
+    searchSongs();
+  });
+
+  $("btnNextPage")?.addEventListener("click", () => {
+    const pageNode = $("page");
+    if (!pageNode) return;
+    const value = Math.max(1, Number(pageNode.value || 1) + 1);
+    pageNode.value = String(value);
+    searchSongs();
+  });
+
+  $("page")?.addEventListener("change", () => {
+    const pageNode = $("page");
+    if (!pageNode) return;
+    pageNode.value = String(getSearchPage());
+    updateSearchPager();
   });
 
   $("password").addEventListener("keydown", (event) => {
@@ -1736,6 +1802,7 @@ function initialize() {
   renderQueue();
   renderRecentSearches();
   renderLyrics([]);
+  updateSearchPager();
   checkMe();
 }
 
