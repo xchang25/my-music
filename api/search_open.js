@@ -16,11 +16,12 @@ module.exports = async function handler(req, res) {
   try {
     const body = await readBody(req);
     const keyword = (body.keyword || "").toString().trim();
+    const page = Math.max(1, toInt(body.page, 1));
     const pageSize = Math.min(50, Math.max(1, toInt(body.pageSize, 20)));
 
     if (!keyword) return json(res, 400, { code: -1, message: "keyword 不能为空" });
 
-    const key = `${keyword}|${pageSize}`;
+    const key = `${keyword}|${page}|${pageSize}`;
 
     const { fromCache, value } = await withCache(cache, key, TTL, async () => {
       const url = new URL("https://itunes.apple.com/search");
@@ -28,6 +29,7 @@ module.exports = async function handler(req, res) {
       url.searchParams.set("entity", "song");
       url.searchParams.set("media", "music");
       url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String((page - 1) * pageSize));
       url.searchParams.set("country", "CN");
       url.searchParams.set("lang", "zh_cn");
 
@@ -71,6 +73,10 @@ module.exports = async function handler(req, res) {
           data: {
             platform: "itunes",
             keyword,
+            page,
+            pageSize,
+            totalCount: Number(raw?.resultCount || 0),
+            hasMore: (page - 1) * pageSize + songs.length < Number(raw?.resultCount || 0),
             count: songs.length,
             songs
           }
@@ -83,4 +89,3 @@ module.exports = async function handler(req, res) {
     return json(res, 500, { code: -1, message: err?.message || "开放搜索异常" });
   }
 };
-
