@@ -24,6 +24,23 @@
           <button class="menu-btn" data-view="library" type="button">我的音乐</button>
         </nav>
 
+        <div class="sidebar-tools glass-soft">
+          <div class="section-title">播放设置</div>
+          <label class="auth-label">
+            音质
+            <select id="qualityGlobal">
+              <option value="128k">128k</option>
+              <option value="320k" selected>320k</option>
+              <option value="flac">flac</option>
+              <option value="flac24bit">flac24bit</option>
+            </select>
+          </label>
+          <div class="row wrap sidebar-tools-row">
+            <span class="pill" id="topAuthBadge">未登录</span>
+            <button id="btnTheme" class="btn btn-ghost" type="button">切换主题</button>
+          </div>
+        </div>
+
         <div class="auth glass-soft">
           <div class="auth-head">
             <div class="section-title">登录保护</div>
@@ -43,27 +60,6 @@
       </aside>
 
       <main class="main">
-        <header class="top glass">
-          <div>
-            <h1>在线音乐播放器</h1>
-            <p>搜索、榜单、播放队列、实时歌词。</p>
-          </div>
-
-          <div class="top-tools">
-            <label class="quality-inline">
-              <span>音质</span>
-              <select id="qualityGlobal">
-                <option value="128k">128k</option>
-                <option value="320k" selected>320k</option>
-                <option value="flac">flac</option>
-                <option value="flac24bit">flac24bit</option>
-              </select>
-            </label>
-            <span class="pill" id="topAuthBadge">未登录</span>
-            <button id="btnTheme" class="btn btn-ghost" type="button">切换主题</button>
-          </div>
-        </header>
-
         <section class="panel glass lyric-stage" id="lyricsCard">
           <div class="lyric-stage-top">
             <div>
@@ -118,7 +114,7 @@
                 <input id="pageSize" type="number" value="20" min="1" max="100" />
               </label>
             </div>
-            <div class="row">
+            <div class="row search-actions">
               <button id="btnSearch" class="btn btn-primary" type="button">开始搜索</button>
             </div>
             <div class="row search-pager">
@@ -144,7 +140,7 @@
 
           <section class="panel glass hidden" id="panel-rank">
             <h3>排行榜</h3>
-            <div class="row wrap">
+            <div class="row wrap rank-tools">
               <label>
                 平台
                 <select id="rankPlatform">
@@ -226,7 +222,7 @@
       <button class="mobile-nav-btn" data-view="library" type="button">我的</button>
     </nav>
 
-    <footer class="player glass">
+    <footer class="player glass hidden">
       <div class="meta">
         <div id="coverBar" class="cover-xs">♫</div>
         <div>

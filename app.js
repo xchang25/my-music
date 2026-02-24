@@ -71,7 +71,7 @@ function saveState() {
 
 function setText(id, value) {
   const node = $(id);
-  if (node) node.textContent = value || "";
+  if (node) node.textContent = value == null ? "" : String(value);
 }
 
 function setMsg(id, value) {
@@ -896,7 +896,7 @@ function createLyricLineNode(line, idx) {
   if (Array.isArray(line.words) && line.words.length > 0) {
     const html = line.words
       .map((word, widx) => {
-        const text = String(word?.text ?? "");
+        const text = String(word?.text ?? word?.word ?? word?.w ?? word?.c ?? word?.value ?? "");
         if (!text) return "";
         return `<span class="lyric-word" data-widx="${widx}">${escapeHtml(text)}</span>`;
       })
@@ -920,8 +920,9 @@ function getLyricLineText(line) {
   if (!line || typeof line !== "object") return "♪";
   const wordText = Array.isArray(line.words)
     ? line.words
-        .map((word) => String(word?.text || ""))
+        .map((word) => String(word?.text ?? word?.word ?? word?.w ?? word?.c ?? word?.value ?? ""))
         .join("")
+        .replace(/\s+/g, " ")
         .trim()
     : "";
   return wordText || String(line.text || "♪").trim() || "♪";
@@ -953,7 +954,14 @@ function setActiveLyric(index, wordIndex = -1) {
   if (!boxes.length) return;
 
   const activeLine = index >= 0 ? state.lyricLines[index] : null;
-  const activeText = activeLine ? getLyricLineText(activeLine) : "暂无";
+  let activeText = activeLine ? getLyricLineText(activeLine) : "暂无";
+  if ((!activeText || activeText === "♪") && index >= 0) {
+    const realtimeNode = $("lyricsRealtime")?.querySelector(`.lyric-line[data-index=\"${index}\"]`);
+    const domText = String(realtimeNode?.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (domText) activeText = domText;
+  }
   setText("lyricCurrentLine", `当前歌词：${activeText}`);
 
   boxes.forEach((box) => {
@@ -986,8 +994,12 @@ function setActiveLyric(index, wordIndex = -1) {
     }
 
     if (state.lyricAutoScroll) {
-      const top = node.offsetTop - box.clientHeight * 0.35;
-      box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      const targetTop = node.offsetTop + node.clientHeight / 2 - box.clientHeight / 2;
+      const maxTop = Math.max(0, box.scrollHeight - box.clientHeight);
+      const clampedTop = Math.max(0, Math.min(maxTop, targetTop));
+      if (Math.abs(clampedTop - box.scrollTop) > 6) {
+        box.scrollTo({ top: clampedTop, behavior: "smooth" });
+      }
     }
   });
 }
