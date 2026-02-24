@@ -146,11 +146,16 @@ function normalizeSongs(raw) {
     : pickFirstArray(raw, [
         "data.data",
         "data.list",
+        "data.result.songs",
+        "data.result.song.list",
+        "data.songList",
         "data.songs",
         "data.song.list",
         "data.result.abslist",
+        "result.songs",
         "result.abslist",
         "song.list",
+        "songList",
         "list",
         "songs",
         "data"
@@ -160,17 +165,19 @@ function normalizeSongs(raw) {
 
   return arr
     .map((item) => {
+      const core = item?.songInfo || item?.song || item?.musicInfo || item;
       let id =
-        item.id ||
-        item.songid ||
-        item.songId ||
-        item.songmid ||
-        item.mid ||
-        item.rid ||
-        item.musicrid ||
-        item.MUSICRID ||
-        item.DC_TARGETID ||
-        item.hash ||
+        core.id ||
+        core.songid ||
+        core.songId ||
+        core.songID ||
+        core.songmid ||
+        core.mid ||
+        core.rid ||
+        core.musicrid ||
+        core.MUSICRID ||
+        core.DC_TARGETID ||
+        core.hash ||
         "";
 
       if (typeof id === "string" && id.startsWith("MUSIC_")) {
@@ -178,29 +185,31 @@ function normalizeSongs(raw) {
       }
 
       const name =
-        item.name ||
-        item.songname ||
-        item.songName ||
-        item.SONGNAME ||
-        item.title ||
-        item.musicName ||
+        core.name ||
+        core.songname ||
+        core.songName ||
+        core.songTitle ||
+        core.SONGNAME ||
+        core.title ||
+        core.musicName ||
         "";
 
-      const singerArray = Array.isArray(item.singer)
-        ? item.singer.map((a) => (typeof a === "string" ? a : a.name || a.title || "")).filter(Boolean).join("/")
+      const singerArray = Array.isArray(core.singer)
+        ? core.singer.map((a) => (typeof a === "string" ? a : a.name || a.title || "")).filter(Boolean).join("/")
         : "";
 
       const artist =
-        item.artist ||
-        item.singer ||
-        item.singername ||
-        item.artistname ||
-        item.ARTIST ||
-        item.author ||
+        core.artist ||
+        core.singer ||
+        core.singername ||
+        core.artistname ||
+        core.ARTIST ||
+        core.author ||
         singerArray ||
-        (Array.isArray(item.artists) ? item.artists.map((a) => a.name || a).join("/") : "");
-      const album = item.album || item.albumname || item.albumName || item.ALBUM || "";
-      const cover = item.cover || item.pic || item.img || item.albumPic || item.albumpic_big || item.picurl || "";
+        (Array.isArray(core.artists) ? core.artists.map((a) => a.name || a).join("/") : "");
+      const album = core.album || core.albumname || core.albumName || core.ALBUM || "";
+      const cover =
+        core.cover || core.pic || core.img || core.albumPic || core.albumpic_big || core.picurl || core.albumCover || "";
 
       return {
         id: String(id),
