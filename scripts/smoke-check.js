@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const path = require("path");
 
 function assert(condition, message) {
@@ -132,3 +132,4 @@ try {
   console.error(`smoke-check: fail - ${error.message}`);
   process.exit(1);
 }
+
