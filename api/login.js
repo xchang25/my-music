@@ -82,9 +82,11 @@ module.exports = async function handler(req, res) {
   }
 
   failMap.delete(ip);
-  const uid = crypto.createHash("sha1").update(ip).digest("hex").slice(0, 12);
+  const uidSeed = `${appPassword}::${password}`;
+  const uid = crypto.createHash("sha1").update(uidSeed).digest("hex").slice(0, 24);
   const token = createSessionToken({ uid, role: "user" }, sessionSecret, 7 * 24 * 3600);
   setSessionCookie(res, token, 7 * 24 * 3600);
 
   return json(res, 200, { code: 0, message: "登录成功" });
 };
+
