@@ -55,7 +55,13 @@ const state = {
   searchSource: "none",
   lyricScaleIndex: Number(localStorage.getItem("lyricScaleIndex") || 1),
   lastVolume: 0.9,
-  touchStartY: null
+  touchStartY: null,
+  libraryStore: "local",
+  librarySyncAt: 0,
+  librarySyncing: false,
+  librarySaving: false,
+  librarySyncTimer: null,
+  librarySyncQueued: false
 };
 
 const audio = $("playerAudio");
@@ -439,8 +445,9 @@ function setLyricFullscreen(open) {
 }
 
 function setAuthUI() {
-  setText("authState", state.loggedIn ? "✅ 已登录" : "❌ 未登录");
-  setText("topAuthBadge", state.loggedIn ? "已登录" : "未登录");
+  const storeText = getLibraryStoreText();
+  setText("authState", state.loggedIn ? `✅ 已登录（${storeText}同步）` : "❌ 未登录");
+  setText("topAuthBadge", state.loggedIn ? `已登录·${storeText}` : "未登录");
   $("authDot")?.classList.toggle("online", state.loggedIn);
 
   ["btnSearch", "btnLoadToplists"].forEach((id) => {
@@ -505,6 +512,14 @@ async function api(path, { method = "GET", body } = {}) {
 
 function onUnauthorized() {
   state.loggedIn = false;
+  state.libraryStore = "local";
+  if (state.librarySyncTimer) {
+    clearTimeout(state.librarySyncTimer);
+    state.librarySyncTimer = null;
+  }
+  state.librarySyncing = false;
+  state.librarySaving = false;
+  state.librarySyncQueued = false;
   setAuthUI();
   setMsg("authState", "登录已失效，请重新登录");
 }
@@ -517,6 +532,9 @@ async function checkMe() {
     state.loggedIn = false;
   }
   setAuthUI();
+  if (state.loggedIn) {
+    await syncLibraryFromCloud({ silent: true });
+  }
 }
 
 async function doLogin() {
@@ -530,8 +548,8 @@ async function doLogin() {
   if (status === 200 && data.code === 0) {
     state.loggedIn = true;
     setAuthUI();
-    setMsg("authState", "登录成功");
     $("password").value = "";
+    await syncLibraryFromCloud({ silent: false });
   } else {
     state.loggedIn = false;
     setAuthUI();
@@ -542,6 +560,14 @@ async function doLogin() {
 async function doLogout() {
   await api("/api/logout", { method: "POST" });
   state.loggedIn = false;
+  state.libraryStore = "local";
+  if (state.librarySyncTimer) {
+    clearTimeout(state.librarySyncTimer);
+    state.librarySyncTimer = null;
+  }
+  state.librarySyncing = false;
+  state.librarySaving = false;
+  state.librarySyncQueued = false;
   setAuthUI();
   setMsg("authState", "已退出登录");
 }
@@ -556,25 +582,180 @@ function formatTime(sec) {
 function songKey(song) {
   return `${song.platform}|${song.id}`;
 }
+function normalizeLibrarySong(song) {
+  if (!song || typeof song !== "object") return null;
+  const id = String(song.id || "").trim();
+  const platform = String(song.platform || "netease").trim();
+  const name = String(song.name || "").trim();
+  if (!id || !platform || !name) return null;
+
+  return {
+    id,
+    platform,
+    name,
+    artist: String(song.artist || "").trim(),
+    album: String(song.album || "").trim(),
+    cover: String(song.cover || "").trim()
+  };
+}
+
+function dedupeLibrarySongs(items, limit = 120) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  const seen = new Set();
+
+  for (const item of items) {
+    const song = normalizeLibrarySong(item);
+    if (!song) continue;
+    const key = songKey(song);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(song);
+    if (out.length >= limit) break;
+  }
+
+  return out;
+}
+
+function mergeLibrarySongs(primary, secondary, limit = 120) {
+  return dedupeLibrarySongs([...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])], limit);
+}
+
+function getLibraryStoreText() {
+  if (state.libraryStore === "redis") return "云端";
+  if (state.libraryStore === "memory") return "临时";
+  return "本地";
+}
+
+function scheduleLibrarySync(delayMs = 900) {
+  if (!state.loggedIn) return;
+  if (state.librarySyncTimer) clearTimeout(state.librarySyncTimer);
+  state.librarySyncTimer = setTimeout(() => {
+    state.librarySyncTimer = null;
+    syncLibraryToCloud({ silent: true });
+  }, Math.max(120, Number(delayMs) || 900));
+}
+
+async function syncLibraryToCloud({ silent = false } = {}) {
+  if (!state.loggedIn) return;
+
+  if (state.librarySaving) {
+    state.librarySyncQueued = true;
+    return;
+  }
+
+  state.librarySaving = true;
+  try {
+    const payload = {
+      favorites: dedupeLibrarySongs(state.favorites, 300),
+      history: dedupeLibrarySongs(state.history, 120),
+      updatedAt: Date.now()
+    };
+
+    const { status, data } = await api("/api/library", {
+      method: "POST",
+      body: payload
+    });
+
+    if (status === 401) {
+      onUnauthorized();
+      return;
+    }
+
+    if (status === 200 && data?.code === 0) {
+      state.libraryStore = data?.data?.store || state.libraryStore;
+      state.librarySyncAt = Number(data?.data?.updatedAt || Date.now()) || Date.now();
+      if (!silent) {
+        setMsg("authState", `已同步收藏与历史（${getLibraryStoreText()}）`);
+      }
+      setAuthUI();
+    } else if (!silent) {
+      setMsg("authState", data?.message || "云同步保存失败，已保留本地数据");
+    }
+  } catch (error) {
+    if (!silent) setMsg("authState", `云同步保存异常：${error?.message || "unknown"}`);
+  } finally {
+    state.librarySaving = false;
+    if (state.librarySyncQueued) {
+      state.librarySyncQueued = false;
+      syncLibraryToCloud({ silent: true });
+    }
+  }
+}
+
+async function syncLibraryFromCloud({ silent = false } = {}) {
+  if (!state.loggedIn) return;
+  if (state.librarySyncing) return;
+
+  state.librarySyncing = true;
+  try {
+    const { status, data } = await api("/api/library", { method: "GET" });
+
+    if (status === 401) {
+      onUnauthorized();
+      return;
+    }
+
+    if (status !== 200 || data?.code !== 0) {
+      if (!silent) {
+        setMsg("authState", data?.message || "读取云同步失败，继续使用本地数据");
+      }
+      return;
+    }
+
+    const cloudFavorites = dedupeLibrarySongs(data?.data?.favorites || [], 300);
+    const cloudHistory = dedupeLibrarySongs(data?.data?.history || [], 120);
+
+    state.favorites = mergeLibrarySongs(cloudFavorites, state.favorites, 300);
+    state.history = mergeLibrarySongs(cloudHistory, state.history, 120);
+    state.libraryStore = data?.data?.store || state.libraryStore;
+    state.librarySyncAt = Number(data?.data?.updatedAt || Date.now()) || Date.now();
+
+    saveState();
+    renderFavorites();
+    renderHistory();
+    setAuthUI();
+
+    await syncLibraryToCloud({ silent: true });
+
+    if (!silent) {
+      setMsg("authState", `登录成功，收藏/历史已同步（${getLibraryStoreText()}）`);
+    }
+  } catch (error) {
+    if (!silent) setMsg("authState", `云同步读取异常：${error?.message || "unknown"}`);
+  } finally {
+    state.librarySyncing = false;
+  }
+}
 
 function addFavorite(song) {
-  if (!song) return;
-  if (state.favorites.some((item) => songKey(item) === songKey(song))) return;
-  state.favorites.unshift({ ...song });
+  const normalized = normalizeLibrarySong(song);
+  if (!normalized) return;
+  if (state.favorites.some((item) => songKey(item) === songKey(normalized))) return;
+  state.favorites.unshift(normalized);
+  state.favorites = dedupeLibrarySongs(state.favorites, 300);
   saveState();
   renderFavorites();
+  scheduleLibrarySync();
 }
 
 function removeFavorite(song) {
-  state.favorites = state.favorites.filter((item) => songKey(item) !== songKey(song));
+  const normalized = normalizeLibrarySong(song);
+  if (!normalized) return;
+  state.favorites = state.favorites.filter((item) => songKey(item) !== songKey(normalized));
   saveState();
   renderFavorites();
+  scheduleLibrarySync();
 }
 
 function addHistory(song) {
-  state.history = [{ ...song }, ...state.history.filter((item) => songKey(item) !== songKey(song))].slice(0, 80);
+  const normalized = normalizeLibrarySong(song);
+  if (!normalized) return;
+  state.history = [normalized, ...state.history.filter((item) => songKey(item) !== songKey(normalized))].slice(0, 120);
+  state.history = dedupeLibrarySongs(state.history, 120);
   saveState();
   renderHistory();
+  scheduleLibrarySync(1200);
 }
 
 function renderSongList(containerId, songs, { showFav = false, showUnfav = false, emptyText = "暂无数据" } = {}) {
@@ -1856,6 +2037,8 @@ function initialize() {
   $("qualityGlobal").value = state.quality;
   setDrawerOpen(false);
   setLyricFullscreen(false);
+  state.favorites = dedupeLibrarySongs(state.favorites, 300);
+  state.history = dedupeLibrarySongs(state.history, 120);
 
   bindMenu();
   bindDemos();
@@ -1874,3 +2057,11 @@ function initialize() {
 }
 
 initialize();
+
+
+
+
+
+
+
+
